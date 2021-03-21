@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -116,9 +116,9 @@ class QNetwork(network.Network):
     q_value_layer = tf.keras.layers.Dense(
         num_actions,
         activation=None,
-        kernel_initializer=tf.compat.v1.initializers.random_uniform(
+        kernel_initializer=tf.random_uniform_initializer(
             minval=-0.03, maxval=0.03),
-        bias_initializer=tf.compat.v1.initializers.constant(-0.2),
+        bias_initializer=tf.constant_initializer(-0.2),
         dtype=dtype)
 
     super(QNetwork, self).__init__(

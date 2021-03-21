@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,6 +17,7 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 import os
@@ -25,16 +26,17 @@ from absl.testing import parameterized
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
+from tf_agents.bandits.agents import lin_ucb_agent
 from tf_agents.bandits.agents import linear_bandit_agent as linear_agent
+from tf_agents.bandits.agents import linear_thompson_sampling_agent
 from tf_agents.bandits.agents import utils as bandit_utils
 from tf_agents.bandits.drivers import driver_utils
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.bandits.specs import utils as bandit_spec_utils
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step
 from tf_agents.utils import common
-from tensorflow.python.framework import test_util  # pylint: disable=g-direct-tensorflow-import  # TF internal
 
 tfd = tfp.distributions
 
@@ -240,7 +242,6 @@ def _get_experience(initial_step, action_step, final_step):
       lambda x: tf.expand_dims(tf.convert_to_tensor(x), 1), single_experience)
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class LinearBanditAgentTest(tf.test.TestCase, parameterized.TestCase):
 
   def setUp(self):
@@ -417,70 +418,6 @@ class LinearBanditAgentTest(tf.test.TestCase, parameterized.TestCase):
 
     # Compute the expected updated estimates.
     global_observation = experience.observation[
-        bandit_spec_utils.GLOBAL_FEATURE_KEY]
-    arm_observation = experience.policy_info.chosen_arm_features
-    overall_observation = tf.squeeze(
-        tf.concat([global_observation, arm_observation], axis=-1), axis=1)
-    rewards = tf.squeeze(experience.reward, axis=1)
-
-    expected_a_new = tf.matmul(
-        overall_observation, overall_observation, transpose_a=True)
-    expected_b_new = bandit_utils.sum_reward_weighted_observations(
-        rewards, overall_observation)
-    self.assertAllClose(expected_a_new, final_a[0])
-    self.assertAllClose(expected_b_new, final_b[0])
-
-  @test_cases()
-  def testLinearAgentUpdatePerArmFeaturesAndMask(self,
-                                                 batch_size,
-                                                 context_dim,
-                                                 exploration_policy,
-                                                 dtype,
-                                                 use_eigendecomp=False):
-    """Check that the agent updates for specified actions and rewards."""
-
-    # Construct a `Trajectory` for the given action, observation, reward.
-    num_actions = 5
-    global_context_dim = context_dim
-    arm_context_dim = 3
-    initial_step, final_step = (
-        _get_initial_and_final_steps_with_per_arm_features(
-            batch_size,
-            global_context_dim,
-            num_actions,
-            arm_context_dim,
-            apply_action_mask=True))
-    action = np.random.randint(num_actions, size=batch_size, dtype=np.int32)
-    action_step = policy_step.PolicyStep(
-        action=tf.convert_to_tensor(action),
-        info=policy_utilities.PerArmPolicyInfo(
-            chosen_arm_features=np.arange(
-                batch_size * arm_context_dim, dtype=np.float32).reshape(
-                    [batch_size, arm_context_dim])))
-    experience = _get_experience(initial_step, action_step, final_step)
-
-    # Construct an agent and perform the update.
-    observation_spec = bandit_spec_utils.create_per_arm_observation_spec(
-        context_dim, arm_context_dim, num_actions, add_action_mask=True)
-    time_step_spec = time_step.time_step_spec(observation_spec)
-    action_spec = tensor_spec.BoundedTensorSpec(
-        dtype=tf.int32, shape=(), minimum=0, maximum=num_actions - 1)
-    agent = linear_agent.LinearBanditAgent(
-        exploration_policy=exploration_policy,
-        time_step_spec=time_step_spec,
-        action_spec=action_spec,
-        use_eigendecomp=use_eigendecomp,
-        observation_and_action_constraint_splitter=lambda x: (x[0], x[1]),
-        accepts_per_arm_features=True,
-        dtype=dtype)
-    self.evaluate(agent.initialize())
-    loss_info = agent.train(experience)
-    self.evaluate(loss_info)
-    final_a = self.evaluate(agent.cov_matrix)
-    final_b = self.evaluate(agent.data_vector)
-
-    # Compute the expected updated estimates.
-    global_observation = experience.observation[0][
         bandit_spec_utils.GLOBAL_FEATURE_KEY]
     arm_observation = experience.policy_info.chosen_arm_features
     overall_observation = tf.squeeze(
@@ -756,7 +693,7 @@ class LinearBanditAgentTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllClose(expected_a_updated_list, final_a)
     self.assertAllClose(expected_b_updated_list, final_b)
     self.assertAllClose(
-        expected_eigvals_updated_list, final_eig_vals, atol=1e-4, rtol=1e-4)
+        expected_eigvals_updated_list, final_eig_vals, atol=2.2e-4, rtol=1e-4)
 
   @test_cases()
   def testDistributedLinearAgentUpdate(self,
@@ -858,6 +795,38 @@ class LinearBanditAgentTest(tf.test.TestCase, parameterized.TestCase):
     checkpoint_load_status = checkpoint.restore(latest_checkpoint)
     self.evaluate(checkpoint_load_status.initialize_or_restore())
     self.assertEqual(self.evaluate(variable_collection.num_samples_list[2]), 0)
+
+  def testUCBandThompsonSamplingShareVariables(self):
+    if not tf.executing_eagerly():
+      self.skipTest('Test only works in eager mode.')
+    context_dim = 9
+    num_actions = 4
+    batch_size = 7
+    variable_collection = linear_agent.LinearBanditVariableCollection(
+        context_dim=context_dim, num_models=num_actions)
+    observation_spec = tensor_spec.TensorSpec([context_dim], tf.float32)
+    time_step_spec = time_step.time_step_spec(observation_spec)
+    action_spec = tensor_spec.BoundedTensorSpec(
+        dtype=tf.int32, shape=(), minimum=0, maximum=num_actions - 1)
+    ucb_agent = lin_ucb_agent.LinearUCBAgent(
+        time_step_spec=time_step_spec,
+        action_spec=action_spec,
+        variable_collection=variable_collection)
+    ts_agent = linear_thompson_sampling_agent.LinearThompsonSamplingAgent(
+        time_step_spec=time_step_spec,
+        action_spec=action_spec,
+        variable_collection=variable_collection)
+    initial_step, final_step = _get_initial_and_final_steps(
+        batch_size, context_dim)
+    action = np.random.randint(num_actions, size=batch_size, dtype=np.int32)
+    action_step = _get_action_step(action)
+    experience = _get_experience(initial_step, action_step, final_step)
+    self.evaluate(ucb_agent.train(experience))
+    self.assertAllEqual(ucb_agent._variable_collection.cov_matrix_list[0],
+                        ts_agent._variable_collection.cov_matrix_list[0])
+    self.evaluate(ts_agent.train(experience))
+    self.assertAllEqual(ucb_agent._variable_collection.data_vector_list[0],
+                        ts_agent._variable_collection.data_vector_list[0])
 
 
 if __name__ == '__main__':

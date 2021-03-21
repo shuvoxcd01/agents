@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -36,12 +36,12 @@ import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.networks import network
 from tf_agents.policies import actor_policy
 from tf_agents.policies import gaussian_policy
 from tf_agents.trajectories import time_step as ts
-from tf_agents.trajectories import trajectory
 from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import eager_utils
@@ -196,15 +196,20 @@ class Td3Agent(tf_agent.TFAgent):
         scale=self._exploration_noise_std,
         clip=True)
 
+    train_sequence_length = 2 if not self._actor_network.state_spec else None
     super(Td3Agent, self).__init__(
         time_step_spec,
         action_spec,
         policy,
         collect_policy,
-        train_sequence_length=2 if not self._actor_network.state_spec else None,
+        train_sequence_length=train_sequence_length,
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
-        train_step_counter=train_step_counter)
+        train_step_counter=train_step_counter,
+    )
+
+    self._as_transition = data_converter.AsTransition(
+        self.data_context, squeeze_time_dim=(train_sequence_length == 2))
 
   def _initialize(self):
     """Initialize the agent.
@@ -275,10 +280,8 @@ class Td3Agent(tf_agent.TFAgent):
       return common.Periodically(update, period, 'update_targets')
 
   def _train(self, experience, weights=None):
-    # TODO(b/120034503): Move the conversion to transitions to the base class.
-    squeeze_time_dim = not self._actor_network.state_spec
-    time_steps, policy_steps, next_time_steps = (
-        trajectory.experience_to_transitions(experience, squeeze_time_dim))
+    transition = self._as_transition(experience)
+    time_steps, policy_steps, next_time_steps = transition
     actions = policy_steps.action
 
     trainable_critic_variables = list(object_identity.ObjectIdentitySet(
@@ -462,7 +465,8 @@ class Td3Agent(tf_agent.TFAgent):
       if nest_utils.is_batched_nested_tensors(
           time_steps, self.time_step_spec, num_outer_dims=2):
         # Sum over the time dimension.
-        critic_loss = tf.reduce_sum(input_tensor=critic_loss, axis=1)
+        critic_loss = tf.reduce_sum(
+            input_tensor=critic_loss, axis=range(1, critic_loss.shape.rank))
 
       if weights is not None:
         critic_loss *= weights
@@ -495,7 +499,8 @@ class Td3Agent(tf_agent.TFAgent):
       actor_loss = -q_values
       # Sum over the time dimension.
       if actor_loss.shape.rank > 1:
-        actor_loss = tf.reduce_sum(actor_loss, axis=(1, actor_loss.shape.rank))
+        actor_loss = tf.reduce_sum(
+            actor_loss, axis=range(1, actor_loss.shape.rank))
       actor_loss = common.aggregate_losses(
           per_example_loss=actor_loss, sample_weight=weights).total_loss
 

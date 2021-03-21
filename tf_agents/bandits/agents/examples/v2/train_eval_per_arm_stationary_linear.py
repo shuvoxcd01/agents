@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,9 +34,9 @@ from tf_agents.bandits.agents.examples.v2 import trainer
 from tf_agents.bandits.environments import stationary_stochastic_per_arm_py_environment as sspe
 from tf_agents.bandits.metrics import tf_metrics as tf_bandit_metrics
 from tf_agents.bandits.networks import global_and_arm_feature_network
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.bandits.specs import utils as bandit_spec_utils
 from tf_agents.environments import tf_py_environment
+from tf_agents.policies import utils as policy_utilities
 
 flags.DEFINE_string('root_dir', os.getenv('TEST_UNDECLARED_OUTPUTS_DIR'),
                     'Root directory for writing logs/summaries/checkpoints.')
@@ -108,11 +108,8 @@ def main(unused_argv):
 
   observation_and_action_constraint_splitter = None
   num_actions_fn = None
-  variable_action_method = bandit_spec_utils.VariableActionMethod.FIXED
   if FLAGS.add_num_actions_feature:
     num_actions_fn = lambda: NUM_ACTIONS
-    variable_action_method = (
-        bandit_spec_utils.VariableActionMethod.NUM_ACTIONS_FEATURE)
 
   env = sspe.StationaryStochasticPerArmPyEnvironment(
       _global_context_sampling_fn,
@@ -120,8 +117,7 @@ def main(unused_argv):
       NUM_ACTIONS,
       reward_fn,
       num_actions_fn,
-      batch_size=BATCH_SIZE,
-      variable_action_method=variable_action_method)
+      batch_size=BATCH_SIZE)
   environment = tf_py_environment.TFPyEnvironment(env)
 
   if FLAGS.agent == 'LinUCB':

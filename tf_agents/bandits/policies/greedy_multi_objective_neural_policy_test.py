@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +23,8 @@ import collections
 from typing import List, Dict, Text, Tuple
 
 import numpy as np
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
+
 from tf_agents.bandits.multi_objective import multi_objective_scalarizer
 from tf_agents.bandits.networks import global_and_arm_feature_network
 from tf_agents.bandits.networks import heteroscedastic_q_network
@@ -36,12 +37,10 @@ from tf_agents.trajectories import time_step as ts
 from tf_agents.typing import types
 from tf_agents.utils import test_utils
 
-from tensorflow.python.framework import test_util  # type: ignore pylint: disable=g-direct-tensorflow-import  # TF internal
-
 
 class DummyNet(network.Network):
 
-  def __init__(self, observation_spec: types.Nested[tf.TypeSpec],
+  def __init__(self, observation_spec: types.NestedTensorSpec,
                kernel_weights: np.ndarray, bias: np.ndarray):
     """A simple linear network.
 
@@ -59,9 +58,8 @@ class DummyNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             kernel_weights.shape[1],
-            kernel_initializer=tf.compat.v1.initializers.constant(
-                kernel_weights),
-            bias_initializer=tf.compat.v1.initializers.constant(bias))
+            kernel_initializer=tf.constant_initializer(kernel_weights),
+            bias_initializer=tf.constant_initializer(bias))
     ]
 
   def call(self, inputs: tf.Tensor, step_type=None, network_state=()):
@@ -97,13 +95,13 @@ class HeteroscedasticDummyNet(
                                                   action_tensor_spec)
     self._value_layer = tf.keras.layers.Dense(
         kernel_weights.shape[1],
-        kernel_initializer=tf.compat.v1.initializers.constant(kernel_weights),
-        bias_initializer=tf.compat.v1.initializers.constant(bias))
+        kernel_initializer=tf.constant_initializer(kernel_weights),
+        bias_initializer=tf.constant_initializer(bias))
 
     self._log_variance_layer = tf.keras.layers.Dense(
         kernel_weights.shape[1],
-        kernel_initializer=tf.compat.v1.initializers.constant(kernel_weights),
-        bias_initializer=tf.compat.v1.initializers.constant(bias))
+        kernel_initializer=tf.constant_initializer(kernel_weights),
+        bias_initializer=tf.constant_initializer(bias))
 
   def call(self, inputs: tf.Tensor, step_type=None, network_state=()):
     del step_type
@@ -117,7 +115,6 @@ class HeteroscedasticDummyNet(
     return predictions, network_state
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class ScalarizeObjectivesTest(test_utils.TestCase):
 
   def setUp(self):
@@ -157,7 +154,6 @@ class ScalarizeObjectivesTest(test_utils.TestCase):
         atol=1e-3)
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class GreedyRewardPredictionPolicyTest(test_utils.TestCase):
 
   def setUp(self):
@@ -289,6 +285,28 @@ class GreedyRewardPredictionPolicyTest(test_utils.TestCase):
     # Initialize all variables
     self.evaluate(tf.compat.v1.global_variables_initializer())
     self.assertAllEqual(self.evaluate(action_step.action), [2, 0])
+
+  def testSetScalarizationParameters(self):
+    policy = greedy_multi_objective_policy.GreedyMultiObjectiveNeuralPolicy(
+        self._time_step_spec, self._action_spec, self._scalarizer,
+        self._create_objective_networks())
+    observations = tf.constant([[1, 2], [2, 1]], dtype=tf.float32)
+    time_step = ts.restart(observations, batch_size=2)
+    policy.scalarizer.set_parameters(
+        direction=tf.constant([[0, 1, 0], [0, 0, 1]], dtype=tf.float32),
+        transform_params={
+            multi_objective_scalarizer.HyperVolumeScalarizer.SLOPE_KEY:
+                tf.constant([[0.2, 0.2, 0.2], [0.1, 0.1, 0.1]],
+                            dtype=tf.float32),
+            multi_objective_scalarizer.HyperVolumeScalarizer.OFFSET_KEY:
+                tf.constant([[1, 1, 1], [2, 2, 2]], dtype=tf.float32)
+        })
+    action_step = policy.action(time_step)
+    self.assertEqual(action_step.action.shape.as_list(), [2])
+    self.assertEqual(action_step.action.dtype, tf.int32)
+    # Initialize all variables
+    self.evaluate(tf.compat.v1.global_variables_initializer())
+    self.assertAllEqual(self.evaluate(action_step.action), [2, 1])
 
   def testActionHeteroscedastic(self):
     policy = greedy_multi_objective_policy.GreedyMultiObjectiveNeuralPolicy(

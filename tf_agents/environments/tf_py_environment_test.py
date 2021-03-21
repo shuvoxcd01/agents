@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,8 +31,10 @@ import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 from tf_agents import specs
 from tf_agents.environments import batched_py_environment
 from tf_agents.environments import py_environment
+from tf_agents.environments import suite_gym
 from tf_agents.environments import tf_py_environment
 from tf_agents.trajectories import time_step as ts
+from tf_agents.utils import common
 
 COMMON_PARAMETERS = (
     dict(batch_py_env=True, isolation=True),
@@ -74,7 +76,7 @@ class PYEnvironmentMock(py_environment.PyEnvironment):
     self._state = 0
     self.resets += 1
     self.last_call_thread_id = threading.current_thread().ident
-    return ts.restart([self._state])
+    return ts.restart([self._state])  # pytype: disable=wrong-arg-types
 
   def _step(self, action):
     self._state = (self._state + 1) % 3
@@ -84,11 +86,11 @@ class PYEnvironmentMock(py_environment.PyEnvironment):
 
     observation = [self._state]
     if self._state == 0:
-      return ts.restart(observation)
+      return ts.restart(observation)  # pytype: disable=wrong-arg-types
     elif self._state == 2:
       self.episodes += 1
-      return ts.termination(observation, reward=1.0)
-    return ts.transition(observation, reward=0.0)
+      return ts.termination(observation, reward=1.0)  # pytype: disable=wrong-arg-types
+    return ts.transition(observation, reward=0.0)  # pytype: disable=wrong-arg-types
 
   def action_spec(self):
     return specs.BoundedArraySpec(
@@ -135,7 +137,7 @@ class PYEnvironmentMockNestedRewards(py_environment.PyEnvironment):
     self._state = 0
     self.last_call_thread_id = threading.current_thread().ident
     return ts.restart(
-        [self._state], batch_size=1, reward_spec=self._reward_spec)
+        [self._state], batch_size=1, reward_spec=self._reward_spec)  # pytype: disable=wrong-arg-types
 
   def _step(self, action):
     self._state = (self._state + 1) % 3
@@ -148,10 +150,10 @@ class PYEnvironmentMockNestedRewards(py_environment.PyEnvironment):
     }
     if self._state == 0:
       return ts.restart(
-          observation, batch_size=1, reward_spec=self._reward_spec)
+          observation, batch_size=1, reward_spec=self._reward_spec)  # pytype: disable=wrong-arg-types
     elif self._state == 2:
-      return ts.termination(observation, reward=reward)
-    return ts.transition(observation, reward=reward)
+      return ts.termination(observation, reward=reward)  # pytype: disable=wrong-arg-types
+    return ts.transition(observation, reward=reward)  # pytype: disable=wrong-arg-types
 
 
 class TFPYEnvironmentTest(tf.test.TestCase, parameterized.TestCase):
@@ -419,6 +421,42 @@ class TFPYEnvironmentTest(tf.test.TestCase, parameterized.TestCase):
     self.assertAllEqual([2.], time_step.reward['constraint'])
     self.assertAllEqual([1.0], time_step.discount)
     self.assertAllEqual([1], time_step.observation)
+
+  def testObservationsNotCached(self):
+    py_env = suite_gym.load('CartPole-v1')
+    tf_env = tf_py_environment.TFPyEnvironment(py_env)
+
+    time_step_1 = py_env.reset()
+    time_step_2 = py_env.reset()
+    # Make sure py env generates unique observations
+    self.assertNotEqual(time_step_1.observation.tolist(),
+                        time_step_2.observation.tolist())
+
+    # Test tf_env also creates uniquee observations
+    time_step_1 = tf_env.reset()
+    time_step_2 = tf_env.reset()
+
+    observation_1 = self.evaluate(time_step_1.observation).tolist()
+    observation_2 = self.evaluate(time_step_2.observation).tolist()
+
+    self.assertNotEqual(observation_1, observation_2)
+
+  @parameterized.parameters(dict(autograph=True), dict(autograph=False))
+  def testObservationsNotCachedWithTFFunction(self, autograph):
+    py_env = suite_gym.load('CartPole-v1')
+    tf_env = tf_py_environment.TFPyEnvironment(py_env)
+
+    tf_env.reset = common.function(tf_env.reset, autograph=autograph)
+    # Test tf_env also creates uniquee observations
+    time_step_1 = tf_env.reset()
+    time_step_2 = tf_env.reset()
+    observation_1 = self.evaluate(time_step_1.observation)
+    observation_2 = self.evaluate(time_step_2.observation)
+    self.assertNotEqual(observation_1.tolist(), observation_2.tolist())
+
+    # Check observation is not all 0.
+    self.assertGreater(abs(sum(observation_2.flatten().tolist())), 0)
+
 
 if __name__ == '__main__':
   tf.test.main()

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -62,7 +62,7 @@ class ReverbTableTests(test_utils.TestCase):
             table=table_name, num_timesteps=1, priority=1)
 
     dataset = replay.as_dataset(
-        sample_batch_size=1, num_steps=None, num_parallel_calls=None)
+        sample_batch_size=1, num_steps=None, num_parallel_calls=1)
 
     iterator = iter(dataset)
     for i in range(3):
@@ -93,7 +93,7 @@ class ReverbTableTests(test_utils.TestCase):
             table=table_name, num_timesteps=1, priority=1)
 
     dataset = replay.as_dataset(
-        sample_batch_size=1, num_steps=None, num_parallel_calls=None)
+        sample_batch_size=1, num_steps=None, num_parallel_calls=1)
 
     iterator = iter(dataset)
     counts = [0] * 3
@@ -129,7 +129,7 @@ class ReverbTableTests(test_utils.TestCase):
         writer.append(i)
         writer.create_item(table_name, num_timesteps=1, priority=1)
 
-    dataset = replay.as_dataset(sample_batch_size=3)
+    dataset = replay.as_dataset(sample_batch_size=3, num_parallel_calls=3)
 
     self.assertTrue(table.can_sample(3))
     iterator = iter(dataset)
@@ -169,7 +169,7 @@ class ReverbTableTests(test_utils.TestCase):
             table=table_name, num_timesteps=1, priority=i)
 
     dataset = replay.as_dataset(
-        sample_batch_size=1, num_steps=None, num_parallel_calls=None)
+        sample_batch_size=1, num_steps=None, num_parallel_calls=1)
 
     iterator = iter(dataset)
     counts = [0] * 3
@@ -204,7 +204,7 @@ class ReverbTableTests(test_utils.TestCase):
         writer.append(i)
         writer.create_item(table_name, num_timesteps=1, priority=i)
 
-    dataset = replay.as_dataset(sample_batch_size=3)
+    dataset = replay.as_dataset(sample_batch_size=3, num_parallel_calls=3)
 
     self.assertTrue(table.can_sample(3))
     iterator = iter(dataset)
@@ -235,6 +235,15 @@ def _create_add_episode_observer_fn(*args, **kwargs):
   @contextlib.contextmanager
   def _create_and_yield(client):
     yield reverb_utils.ReverbAddEpisodeObserver(client, *args, **kwargs)
+
+  return _create_and_yield
+
+
+def _create_add_sequence_observer_fn(*args, **kwargs):
+
+  @contextlib.contextmanager
+  def _create_and_yield(client):
+    yield reverb_utils.ReverbTrajectorySequenceObserver(client, *args, **kwargs)
 
   return _create_and_yield
 
@@ -270,30 +279,95 @@ class ReverbObserverTest(parameterized.TestCase):
     self._writer.return_value = self._writer
 
   @parameterized.named_parameters(
-      ('add_trajectory_observer',
-       _create_add_trajectory_observer_fn(
-           table_name='test_table', sequence_length=2),
-       _env_creator(3),
-       3,   # expected_items
-       2,   # writer_call_counts
-       4,   # max_steps
-       5),  # append_count
-      ('add_trajectory_episode_observer',
-       _create_add_episode_observer_fn(
-           table_name='test_table', max_sequence_length=8,
-           priority=3), _env_creator(3),
-       2,    # expected_items
-       3,    # writer_call_counts
-       8,    # max_steps
-       10),  # append_count
-      ('add_trajectory_observer_stride2',
-       _create_add_trajectory_observer_fn(
-           table_name='test_table', sequence_length=2,
-           stride_length=2), _env_creator(3),
-       2,   # expected_items
-       2,   # writer_call_counts
-       4,   # max_steps
-       5))  # append_count
+      (
+          'add_trajectory_observer',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table', sequence_length=2),
+          _env_creator(3),
+          3,  # expected_items
+          2,  # writer_call_counts
+          4,  # max_steps
+          5),  # append_count
+      (
+          'add_trajectory_episode_observer',
+          _create_add_episode_observer_fn(
+              table_name='test_table', max_sequence_length=8, priority=3),
+          _env_creator(3),
+          2,  # expected_items
+          3,  # writer_call_counts
+          8,  # max_steps
+          10),  # append_count
+      (
+          'add_trajectory_observer_stride2',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table', sequence_length=2, stride_length=2),
+          _env_creator(3),
+          2,  # expected_items
+          2,  # writer_call_counts
+          4,  # max_steps
+          5),  # append_count
+      (
+          'add_trajectory_observer_with_padding_stride_one',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table',
+              sequence_length=4,
+              stride_length=1,
+              pad_end_of_episodes=True),
+          _env_creator(5),
+          12,  # expected_items
+          3,  # writer_call_counts
+          11,  # max_steps
+          19,  # append_count
+      ),
+      (
+          'add_trajectory_observer_with_padding_stride_two',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table',
+              sequence_length=4,
+              stride_length=2,
+              pad_end_of_episodes=True),
+          _env_creator(5),
+          6,  # expected_items
+          3,  # writer_call_counts
+          11,  # max_steps
+          19,  # append_count
+      ),
+      (
+          'add_trajectory_observer_with_padding_stride_three',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table',
+              sequence_length=4,
+              stride_length=3,
+              pad_end_of_episodes=True),
+          _env_creator(5),
+          4,  # expected_items
+          3,  # writer_call_counts
+          11,  # max_steps
+          19,  # append_count
+      ),
+      (
+          'add_trajectory_observer_with_padding_stride_sequence_length',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table',
+              sequence_length=4,
+              stride_length=4,
+              pad_end_of_episodes=True),
+          _env_creator(5),
+          4,  # expected_items
+          3,  # writer_call_counts
+          11,  # max_steps
+          19,  # append_count
+      ),
+      (
+          'add_sequence_observer',
+          _create_add_sequence_observer_fn(
+              table_name='test_table', sequence_length=2, stride_length=2),
+          _env_creator(3),
+          2,  # expected_items
+          1,  # writer_call_counts
+          4,  # max_steps
+          5)  # append_count
+  )
   def test_observer_writes(self, create_observer_fn, env_fn, expected_items,
                            writer_call_counts, max_steps, append_count):
     env = env_fn()
@@ -306,6 +380,68 @@ class ReverbObserverTest(parameterized.TestCase):
     self.assertEqual(writer_call_counts, self._writer.call_count)
     self.assertEqual(append_count, self._writer.append.call_count)
     self.assertEqual(expected_items, self._writer.create_item.call_count)
+
+  @parameterized.named_parameters(
+      (
+          'add_trajectory_observer_reset_without_writing_cache',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table', sequence_length=4, stride_length=4),
+          False,  # reset_with_write_cached_steps
+          13,  # append_count
+          2,  # expected_items
+          0,  # append_count_from_reset
+          0,  # expected_items_from_reset
+      ),
+      (
+          'add_trajectory_observer_reset_with_writing_cache_with_padding',
+          _create_add_trajectory_observer_fn(
+              table_name='test_table',
+              sequence_length=4,
+              stride_length=4,
+              pad_end_of_episodes=True),
+          True,  # reset_with_write_cached_steps
+          19,  # append_count
+          4,  # expected_items
+          3,  # append_count_from_reset
+          1,  # expected_items_from_reset
+      ),
+  )
+  def test_observer_resets(self, create_observer_fn,
+                           reset_with_write_cached_steps, append_count,
+                           expected_items, append_count_from_reset,
+                           expected_items_from_reset):
+    env = _env_creator(5)()
+    with create_observer_fn(self._client) as observer:
+      policy = _create_random_policy_from_env(env)
+      driver = py_driver.PyDriver(
+          env, policy, observers=[observer], max_steps=11)
+      driver.run(env.reset())
+
+      self.assertEqual(append_count, self._writer.append.call_count)
+      self.assertEqual(expected_items, self._writer.create_item.call_count)
+      observer.reset(write_cached_steps=reset_with_write_cached_steps)
+      self.assertEqual(append_count + append_count_from_reset,
+                       self._writer.append.call_count)
+      self.assertEqual(expected_items + expected_items_from_reset,
+                       self._writer.create_item.call_count)
+
+  def test_observer_writes_multi_tables(self):
+    episode_length = 3
+    collect_step_count = 6
+    table_count = 2
+    create_observer_fn = _create_add_sequence_observer_fn(
+        table_name=['test_table1', 'test_table2'],
+        sequence_length=episode_length,
+        stride_length=episode_length)
+    env = _env_creator(episode_length)()
+    with create_observer_fn(self._client) as observer:
+      policy = _create_random_policy_from_env(env)
+      driver = py_driver.PyDriver(
+          env, policy, observers=[observer], max_steps=collect_step_count)
+      driver.run(env.reset())
+
+    self.assertEqual(table_count * int(collect_step_count / episode_length),
+                     self._writer.create_item.call_count)
 
   def test_episodic_observer_overflow_episode_bypass(self):
     env1 = _env_creator(3)()

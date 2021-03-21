@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,16 +19,24 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+from absl.testing import parameterized
 
+import mock
+import tensorflow as tf
+
+from tf_agents.agents import test_util
 from tf_agents.agents.ddpg import critic_rnn_network
 from tf_agents.agents.sac import sac_agent
+from tf_agents.agents.sac import tanh_normal_projection_network
+from tf_agents.networks import actor_distribution_network
 from tf_agents.networks import actor_distribution_rnn_network
+from tf_agents.networks import nest_map
 from tf_agents.networks import network
+from tf_agents.networks import sequential
 from tf_agents.specs import tensor_spec
+from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step as ts
 from tf_agents.trajectories import trajectory
-from tf_agents.trajectories.policy_step import PolicyStep
 from tf_agents.utils import common
 from tf_agents.utils import test_utils
 
@@ -59,17 +67,18 @@ class DummyActorPolicy(object):
     # Action is maximum of action range.
     self._action = single_action_spec.maximum
     self._action_spec = action_spec
+    self.info_spec = ()
 
   def action(self, time_step):
     observation = time_step.observation
     batch_size = observation.shape[0]
     action = tf.constant(self._action, dtype=tf.float32, shape=[batch_size, 1])
-    return PolicyStep(action=action)
+    return policy_step.PolicyStep(action=action)
 
   def distribution(self, time_step, policy_state=()):
     del policy_state
     action = self.action(time_step).action
-    return PolicyStep(action=_MockDistribution(action))
+    return policy_step.PolicyStep(action=_MockDistribution(action))
 
   def get_initial_state(self, batch_size):
     del batch_size
@@ -88,14 +97,14 @@ class DummyCriticNet(network.Network):
     self._value_layer = tf.keras.layers.Dense(
         1,
         kernel_regularizer=tf.keras.regularizers.l2(l2_regularization_weight),
-        kernel_initializer=tf.compat.v1.initializers.constant([[0], [1]]),
-        bias_initializer=tf.compat.v1.initializers.constant([[0]]))
+        kernel_initializer=tf.constant_initializer([[0], [1]]),
+        bias_initializer=tf.constant_initializer([[0]]))
     self._shared_layer = shared_layer
     self._action_layer = tf.keras.layers.Dense(
         1,
         kernel_regularizer=tf.keras.regularizers.l2(l2_regularization_weight),
-        kernel_initializer=tf.compat.v1.initializers.constant([[1]]),
-        bias_initializer=tf.compat.v1.initializers.constant([[0]]))
+        kernel_initializer=tf.constant_initializer([[1]]),
+        bias_initializer=tf.constant_initializer([[0]]))
 
   def copy(self, name=''):
     del name
@@ -119,30 +128,135 @@ class DummyCriticNet(network.Network):
     return q_value, network_state
 
 
-class SacAgentTest(test_utils.TestCase):
+def create_sequential_critic_net(l2_regularization_weight=0.0,
+                                 shared_layer=None):
+  value_layer = tf.keras.layers.Dense(
+      1,
+      kernel_regularizer=tf.keras.regularizers.l2(l2_regularization_weight),
+      kernel_initializer=tf.initializers.constant([[0], [1]]),
+      bias_initializer=tf.initializers.constant([[0]]))
+  if shared_layer:
+    value_layer = sequential.Sequential([value_layer, shared_layer])
+
+  action_layer = tf.keras.layers.Dense(
+      1,
+      kernel_regularizer=tf.keras.regularizers.l2(l2_regularization_weight),
+      kernel_initializer=tf.initializers.constant([[1]]),
+      bias_initializer=tf.initializers.constant([[0]]))
+
+  def sum_value_and_action_out(value_and_action_out):
+    value_out, action_out = value_and_action_out
+    return tf.reshape(value_out + action_out, [-1])
+
+  return sequential.Sequential([
+      nest_map.NestMap((value_layer, action_layer)),
+      tf.keras.layers.Lambda(sum_value_and_action_out)
+  ])
+
+
+class SacAgentTest(parameterized.TestCase, test_utils.TestCase):
 
   def setUp(self):
     super(SacAgentTest, self).setUp()
-    self._obs_spec = tensor_spec.TensorSpec([2], tf.float32)
+    self._obs_spec = tensor_spec.BoundedTensorSpec([2],
+                                                   tf.float32,
+                                                   minimum=0,
+                                                   maximum=1)
     self._time_step_spec = ts.time_step_spec(self._obs_spec)
     self._action_spec = tensor_spec.BoundedTensorSpec([1], tf.float32, -1, 1)
 
-  def testCreateAgent(self):
+  @parameterized.named_parameters(('Network', DummyCriticNet, False),
+                                  ('Keras', create_sequential_critic_net, True))
+  def testCreateAgent(self, create_critic_net_fn, skip_in_tf1):
+    if skip_in_tf1 and not common.has_eager_been_enabled():
+      self.skipTest('Skipping test: sequential networks not supported in TF1')
+
+    critic_network = create_critic_net_fn()
+
     sac_agent.SacAgent(
         self._time_step_spec,
         self._action_spec,
-        critic_network=DummyCriticNet(),
+        critic_network=critic_network,
         actor_network=None,
         actor_optimizer=None,
         critic_optimizer=None,
         alpha_optimizer=None,
         actor_policy_ctor=DummyActorPolicy)
 
-  def testCriticLoss(self):
+  def testAgentTrajectoryTrain(self):
+    actor_net = actor_distribution_network.ActorDistributionNetwork(
+        self._obs_spec,
+        self._action_spec,
+        fc_layer_params=(10,),
+        continuous_projection_net=tanh_normal_projection_network
+        .TanhNormalProjectionNetwork)
+
     agent = sac_agent.SacAgent(
         self._time_step_spec,
         self._action_spec,
         critic_network=DummyCriticNet(),
+        actor_network=actor_net,
+        actor_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        critic_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        alpha_optimizer=tf.compat.v1.train.AdamOptimizer(0.001))
+
+    trajectory_spec = trajectory.Trajectory(
+        step_type=self._time_step_spec.step_type,
+        observation=self._time_step_spec.observation,
+        action=self._action_spec,
+        policy_info=(),
+        next_step_type=self._time_step_spec.step_type,
+        reward=tensor_spec.BoundedTensorSpec(
+            [], tf.float32, minimum=0.0, maximum=1.0, name='reward'),
+        discount=self._time_step_spec.discount)
+
+    sample_trajectory_experience = tensor_spec.sample_spec_nest(
+        trajectory_spec, outer_dims=(3, 2))
+    agent.train(sample_trajectory_experience)
+
+  def testAgentTransitionTrain(self):
+    actor_net = actor_distribution_network.ActorDistributionNetwork(
+        self._obs_spec,
+        self._action_spec,
+        fc_layer_params=(10,),
+        continuous_projection_net=tanh_normal_projection_network
+        .TanhNormalProjectionNetwork)
+
+    agent = sac_agent.SacAgent(
+        self._time_step_spec,
+        self._action_spec,
+        critic_network=DummyCriticNet(),
+        actor_network=actor_net,
+        actor_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        critic_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        alpha_optimizer=tf.compat.v1.train.AdamOptimizer(0.001))
+
+    time_step_spec = self._time_step_spec._replace(
+        reward=tensor_spec.BoundedTensorSpec(
+            [], tf.float32, minimum=0.0, maximum=1.0, name='reward'))
+
+    transition_spec = trajectory.Transition(
+        time_step=time_step_spec,
+        action_step=policy_step.PolicyStep(action=self._action_spec,
+                                           state=(),
+                                           info=()),
+        next_time_step=time_step_spec)
+
+    sample_trajectory_experience = tensor_spec.sample_spec_nest(
+        transition_spec, outer_dims=(3,))
+    agent.train(sample_trajectory_experience)
+
+  @parameterized.named_parameters(('Network', DummyCriticNet, False),
+                                  ('Keras', create_sequential_critic_net, True))
+  def testCriticLoss(self, create_critic_net_fn, skip_in_tf1):
+    if skip_in_tf1 and not common.has_eager_been_enabled():
+      self.skipTest('Skipping test: sequential networks not supported in TF1')
+
+    critic_network = create_critic_net_fn()
+    agent = sac_agent.SacAgent(
+        self._time_step_spec,
+        self._action_spec,
+        critic_network=critic_network,
         actor_network=None,
         actor_optimizer=None,
         critic_optimizer=None,
@@ -253,6 +367,55 @@ class SacAgentTest(test_utils.TestCase):
     loss_ = self.evaluate(loss)
     self.assertAllClose(loss_, expected_loss)
 
+  @mock.patch.object(sac_agent.SacAgent, '_apply_gradients')
+  @mock.patch.object(sac_agent.SacAgent, '_actions_and_log_probs')
+  def testLoss(self, mock_actions_and_log_probs, mock_apply_gradients):
+    # Mock _actions_and_log_probs so that _train() and _loss() run on the same
+    # sampled values.
+    actions = tf.constant([[0.2], [0.5], [-0.8]])
+    log_pi = tf.constant([-1.1, -0.8, -0.5])
+    mock_actions_and_log_probs.return_value = (actions, log_pi)
+
+    # Skip applying gradients since mocking _actions_and_log_probs.
+    del mock_apply_gradients
+
+    actor_net = actor_distribution_network.ActorDistributionNetwork(
+        self._obs_spec,
+        self._action_spec,
+        fc_layer_params=(10,),
+        continuous_projection_net=tanh_normal_projection_network
+        .TanhNormalProjectionNetwork)
+
+    agent = sac_agent.SacAgent(
+        self._time_step_spec,
+        self._action_spec,
+        critic_network=DummyCriticNet(),
+        actor_network=actor_net,
+        actor_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        critic_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        alpha_optimizer=tf.compat.v1.train.AdamOptimizer(0.001))
+
+    observations = tf.constant(
+        [[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]],
+        dtype=tf.float32)
+    actions = tf.constant([[[0], [1]], [[2], [3]], [[4], [5]]],
+                          dtype=tf.float32)
+    time_steps = ts.TimeStep(
+        step_type=tf.constant([[1, 1]] * 3, dtype=tf.int32),
+        reward=tf.constant([[1, 1]] * 3, dtype=tf.float32),
+        discount=tf.constant([[1, 1]] * 3, dtype=tf.float32),
+        observation=observations)
+
+    experience = trajectory.Trajectory(
+        time_steps.step_type, observations, actions, (),
+        time_steps.step_type, time_steps.reward, time_steps.discount)
+
+    test_util.test_loss_and_train_output(
+        test=self,
+        expect_equal_loss_values=True,
+        agent=agent,
+        experience=experience)
+
   def testPolicy(self):
     agent = sac_agent.SacAgent(
         self._time_step_spec,
@@ -341,8 +504,8 @@ class SacAgentTest(test_utils.TestCase):
   def testSharedLayer(self):
     shared_layer = tf.keras.layers.Dense(
         1,
-        kernel_initializer=tf.compat.v1.initializers.constant([0]),
-        bias_initializer=tf.compat.v1.initializers.constant([0]),
+        kernel_initializer=tf.constant_initializer([0]),
+        bias_initializer=tf.constant_initializer([0]),
         name='shared')
 
     critic_net_1 = DummyCriticNet(shared_layer=shared_layer)
@@ -350,8 +513,8 @@ class SacAgentTest(test_utils.TestCase):
 
     target_shared_layer = tf.keras.layers.Dense(
         1,
-        kernel_initializer=tf.compat.v1.initializers.constant([0]),
-        bias_initializer=tf.compat.v1.initializers.constant([0]),
+        kernel_initializer=tf.constant_initializer([0]),
+        bias_initializer=tf.constant_initializer([0]),
         name='shared_target')
 
     target_critic_net_1 = DummyCriticNet(shared_layer=target_shared_layer)

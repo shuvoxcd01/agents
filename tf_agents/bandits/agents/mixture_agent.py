@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,21 +16,26 @@
 """An agent that mixes a list of agents with a constant mixture distribution."""
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 import abc
+from typing import List, Optional, Sequence, Text
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.bandits.policies import mixture_policy
 from tf_agents.trajectories import trajectory
+from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import nest_utils
 
 
-def _dynamic_partition_of_nested_tensors(nested_tensor, partitions,
-                                         num_partitions):
+def _dynamic_partition_of_nested_tensors(
+    nested_tensor: types.NestedTensor, partitions: types.Int,
+    num_partitions: int) -> List[types.NestedTensor]:
   """This function takes a nested structure and partitions every element of it.
 
   Specifically it outputs a list of nest that all have the same structure as the
@@ -49,6 +54,8 @@ def _dynamic_partition_of_nested_tensors(nested_tensor, partitions,
     A list of nested tensors with the same structure as `nested_tensor`.
   """
   flattened_tensors = tf.nest.flatten(nested_tensor)
+  if not flattened_tensors:
+    return [nested_tensor] * num_partitions
   partitioned_flat_tensors = [
       tf.dynamic_partition(
           data=t, partitions=partitions, num_partitions=num_partitions)
@@ -73,7 +80,10 @@ class MixtureAgent(tf_agent.TFAgent):
   compatible with XLA.
   """
 
-  def __init__(self, mixture_distribution, agents, name=None):
+  def __init__(self,
+               mixture_distribution: types.Distribution,
+               agents: Sequence[tf_agent.TFAgent],
+               name: Optional[Text] = None):
     """Initializes an instance of `MixtureAgent`.
 
     Args:
@@ -106,6 +116,8 @@ class MixtureAgent(tf_agent.TFAgent):
     policy = mixture_policy.MixturePolicy(mixture_distribution, policies)
     super(MixtureAgent, self).__init__(
         time_step_spec, action_spec, policy, policy, train_sequence_length=None)
+    self._as_trajectory = data_converter.AsTrajectory(
+        self.data_context, sequence_length=None)
 
   def _initialize(self):
     tf.compat.v1.variables_initializer(self.variables)
@@ -121,6 +133,7 @@ class MixtureAgent(tf_agent.TFAgent):
 
   def _train(self, experience, weights=None):
     del weights  # unused
+    experience = self._as_trajectory(experience)
 
     reward, _ = nest_utils.flatten_multi_batched_nested_tensors(
         experience.reward, self._time_step_spec.reward)

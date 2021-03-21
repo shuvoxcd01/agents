@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -32,7 +32,7 @@ class ScriptedPyPolicyTest(test_utils.TestCase):
     super(ScriptedPyPolicyTest, self).setUp()
     self._obs_spec = array_spec.ArraySpec((), np.int32, 'obs')
     self._time_step_spec = ts.time_step_spec(self._obs_spec)
-    self._time_step = ts.restart(observation=1)
+    self._time_step = ts.restart(observation=1)  # pytype: disable=wrong-arg-types
 
   def testFollowsScript(self):
     action_spec = [
@@ -96,7 +96,7 @@ class ScriptedPyPolicyTest(test_utils.TestCase):
     policy = scripted_py_policy.ScriptedPyPolicy(
         time_step_spec=self._time_step_spec,
         action_spec=action_spec,
-        action_script=action_script)
+        action_script=action_script)  # pytype: disable=wrong-arg-types
     policy_state = policy.get_initial_state()
 
     action_step = policy.action(self._time_step, policy_state)

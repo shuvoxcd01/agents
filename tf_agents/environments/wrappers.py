@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -386,7 +386,9 @@ class ActionDiscretizeWrapper(PyEnvironmentBaseWrapper):
     limits = np.asarray(limits)
     # Simplify shape of bounds if they are all equal.
     if np.all(limits == limits.flat[0]):
-      limits = limits.flat[0]
+      discrete_spec_max_limit = limits.flat[0]
+    else:
+      discrete_spec_max_limit = limits
     # Workaround for b/148086610. Makes the discretized wrapper generate a
     # scalar spec when possible.
     shape = () if spec.shape == (1,) else spec.shape
@@ -394,7 +396,7 @@ class ActionDiscretizeWrapper(PyEnvironmentBaseWrapper):
         shape=shape,
         dtype=np.int32,
         minimum=0,
-        maximum=limits - 1,
+        maximum=discrete_spec_max_limit - 1,
         name=spec.name)
 
     minimum = np.broadcast_to(spec.minimum, shape)
@@ -540,12 +542,12 @@ class FlattenObservationsWrapper(PyEnvironmentBaseWrapper):
 
   def __init__(self,
                env: py_environment.PyEnvironment,
-               observations_whitelist: Optional[Sequence[Text]] = None):
+               observations_allowlist: Optional[Sequence[Text]] = None):
     """Initializes a wrapper to flatten environment observations.
 
     Args:
       env: A `py_environment.PyEnvironment` environment to wrap.
-      observations_whitelist: A list of observation keys that want to be
+      observations_allowlist: A list of observation keys that want to be
         observed from the environment.  All other observations returned are
         filtered out.  If not provided, all observations will be kept.
         Additionally, if this is provided, the environment is expected to return
@@ -553,29 +555,29 @@ class FlattenObservationsWrapper(PyEnvironmentBaseWrapper):
 
     Raises:
       ValueError: If the current environment does not return a dictionary of
-        observations and observations whitelist is provided.
-      ValueError: If the observation whitelist keys are not found in the
+        observations and observations_allowlist is provided.
+      ValueError: If the observation_allowlist keys are not found in the
         environment.
     """
     super(FlattenObservationsWrapper, self).__init__(env)
 
-    # If observations whitelist is provided:
+    # If observations allowlist is provided:
     #  Check that the environment returns a dictionary of observations.
-    #  Check that the set of whitelist keys is a found in the environment keys.
-    if observations_whitelist is not None:
+    #  Check that the set of allowed keys is a found in the environment keys.
+    if observations_allowlist is not None:
       if not isinstance(env.observation_spec(), dict):
         raise ValueError(
-            'If you provide an observations whitelist, the current environment '
+            'If you provide an observations allowlist, the current environment '
             'must return a dictionary of observations! The returned observation'
             ' spec is type %s.' % (type(env.observation_spec())))
 
-      # Check that observation whitelist keys are valid observation keys.
-      if not (set(observations_whitelist).issubset(
+      # Check that observation allowlist keys are valid observation keys.
+      if not (set(observations_allowlist).issubset(
           env.observation_spec().keys())):
         raise ValueError(
-            'The observation whitelist contains keys not found in the '
+            'The observation allowlist contains keys not found in the '
             'environment! Unknown keys: %s' % list(
-                set(observations_whitelist).difference(
+                set(observations_allowlist).difference(
                     env.observation_spec().keys())))
 
     # Check that all observations have the same dtype. This dtype will be used
@@ -588,10 +590,10 @@ class FlattenObservationsWrapper(PyEnvironmentBaseWrapper):
     inferred_spec_dtype = env_dtypes[0]
 
     self._observation_spec_dtype = inferred_spec_dtype
-    self._observations_whitelist = observations_whitelist
+    self._observations_allowlist = observations_allowlist
     # Update the observation spec in the environment.
     observations_spec = env.observation_spec()
-    if self._observations_whitelist is not None:
+    if self._observations_allowlist is not None:
       observations_spec = self._filter_observations(observations_spec)
 
     # Compute the observation length after flattening the observation items and
@@ -617,10 +619,10 @@ class FlattenObservationsWrapper(PyEnvironmentBaseWrapper):
 
     Returns:
       A nested dict of arrays corresponding to `observation_spec()` with only
-        observation keys in the observation whitelist.
+        observation keys in the observation allowlist.
     """
     filter_out = set(observations.keys()).difference(
-        self._observations_whitelist)
+        self._observations_allowlist)
     # Remove unwanted keys from the observation list.
     for filter_key in filter_out:
       del observations[filter_key]
@@ -644,7 +646,7 @@ class FlattenObservationsWrapper(PyEnvironmentBaseWrapper):
     # We can't set attribute to the TimeStep tuple, so we make a copy of the
     # observations.
     observations = timestep.observation
-    if self._observations_whitelist is not None:
+    if self._observations_allowlist is not None:
       observations = self._filter_observations(observations)
 
     return ts.TimeStep(
@@ -798,17 +800,22 @@ class HistoryWrapper(PyEnvironmentBaseWrapper):
   def __init__(self,
                env: py_environment.PyEnvironment,
                history_length: int = 3,
-               include_actions: bool = False):
+               include_actions: bool = False,
+               tile_first_step_obs: bool = False,
+               ):
     """Initializes a HistoryWrapper.
 
     Args:
       env: Environment to wrap.
       history_length: Length of the history to attach.
       include_actions: Whether actions should be included in the history.
+      tile_first_step_obs: If True the observation on reset is tiled to fill the
+       history.
     """
     super(HistoryWrapper, self).__init__(env)
     self._history_length = history_length
     self._include_actions = include_actions
+    self._tile_first_step_obs = tile_first_step_obs
 
     self._zero_observation = self._zeros_from_spec(env.observation_spec())
     self._zero_action = self._zeros_from_spec(env.action_spec())
@@ -859,12 +866,18 @@ class HistoryWrapper(PyEnvironmentBaseWrapper):
     return time_step._replace(observation=observation)
 
   def _reset(self):
-    self._observation_history.extend([self._zero_observation] *
-                                     (self._history_length - 1))
+    time_step = self._env.reset()
+
+    if self._tile_first_step_obs:
+      self._observation_history.extend([
+          time_step.observation.copy() for _ in range(self._history_length - 1)
+      ])
+    else:
+      self._observation_history.extend([self._zero_observation] *
+                                       (self._history_length - 1))
     self._action_history.extend([self._zero_action] *
                                 (self._history_length - 1))
 
-    time_step = self._env.reset()
     return self._add_history(time_step, self._zero_action)
 
   def _step(self, action):

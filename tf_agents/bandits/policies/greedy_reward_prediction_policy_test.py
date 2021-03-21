@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,10 +21,9 @@ from __future__ import print_function
 import collections
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
-
-from tf_agents.bandits.agents import constraints
 from tf_agents.bandits.networks import global_and_arm_feature_network
 from tf_agents.bandits.networks import heteroscedastic_q_network
+from tf_agents.bandits.policies import constraints
 from tf_agents.bandits.policies import greedy_reward_prediction_policy as greedy_reward_policy
 from tf_agents.bandits.specs import utils as bandit_spec_utils
 from tf_agents.networks import network
@@ -44,10 +43,9 @@ class DummyNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             num_actions,
-            kernel_initializer=tf.compat.v1.initializers.constant(
-                [[1, 1.5, 2], [1, 1.5, 4]]),
-            bias_initializer=tf.compat.v1.initializers.constant(
-                [[1], [1], [-10]]))
+            kernel_initializer=tf.constant_initializer([[1, 1.5, 2],
+                                                        [1, 1.5, 4]]),
+            bias_initializer=tf.constant_initializer([[1], [1], [-10]]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -72,17 +70,13 @@ class HeteroscedasticDummyNet(
                                                   action_tensor_spec)
     self._value_layer = tf.keras.layers.Dense(
         num_actions,
-        kernel_initializer=tf.compat.v1.initializers.constant(
-            [[1, 1.5, 2], [1, 1.5, 4]]),
-        bias_initializer=tf.compat.v1.initializers.constant(
-            [[1], [1], [-10]]))
+        kernel_initializer=tf.constant_initializer([[1, 1.5, 2], [1, 1.5, 4]]),
+        bias_initializer=tf.constant_initializer([[1], [1], [-10]]))
 
     self._log_variance_layer = tf.keras.layers.Dense(
         num_actions,
-        kernel_initializer=tf.compat.v1.initializers.constant(
-            [[1, 1.5, 2], [1, 1.5, 4]]),
-        bias_initializer=tf.compat.v1.initializers.constant(
-            [[1], [1], [-10]]))
+        kernel_initializer=tf.constant_initializer([[1, 1.5, 2], [1, 1.5, 4]]),
+        bias_initializer=tf.constant_initializer([[1], [1], [-10]]))
 
   def call(self, inputs, step_type=None, network_state=()):
     del step_type

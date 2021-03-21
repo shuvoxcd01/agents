@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,19 +24,25 @@ Implementation based on
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
-import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+from typing import Optional, Text
 
+import gin
+import tensorflow as tf
+
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
-from tf_agents.bandits.agents import utils as bandit_utils
 from tf_agents.bandits.policies import categorical_policy
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.trajectories import policy_step
+from tf_agents.typing import types
 from tf_agents.utils import common
 
 
-def selective_sum(values, partitions, num_partitions):
+def selective_sum(values: types.Tensor, partitions: types.Int,
+                  num_partitions: int) -> types.Tensor:
   """Sums entries in `values`, partitioned using `partitions`.
 
   For example,
@@ -63,7 +69,8 @@ def selective_sum(values, partitions, num_partitions):
                    for partition in partitioned_values])
 
 
-def exp3_update_value(reward, log_prob):
+def exp3_update_value(reward: types.Float,
+                      log_prob: types.Float) -> types.Float:
   return 1. - (1. - reward) / tf.exp(log_prob)
 
 
@@ -75,14 +82,14 @@ class Exp3Agent(tf_agent.TFAgent):
 
   "Bandit Algorithms"
     Lattimore and Szepesvari, 2019
-    http://downloads.tor-lattimore.com/book.pdf
+    https://tor-lattimore.com/downloads/book/book.pdf
   """
 
   def __init__(self,
-               time_step_spec,
-               action_spec,
-               learning_rate,
-               name=None):
+               time_step_spec: types.TimeStep,
+               action_spec: types.BoundedTensorSpec,
+               learning_rate: float,
+               name: Optional[Text] = None):
     """Initialize an instance of `Exp3Agent`.
 
     Args:
@@ -97,7 +104,7 @@ class Exp3Agent(tf_agent.TFAgent):
     """
     tf.Module.__init__(self, name=name)
     common.tf_agents_gauge.get_cell('TFABandit').set(True)
-    self._num_actions = bandit_utils.get_num_actions_from_tensor_spec(
+    self._num_actions = policy_utilities.get_num_actions_from_tensor_spec(
         action_spec)
     self._weights = tf.compat.v2.Variable(
         tf.zeros(self._num_actions), name='weights')
@@ -114,6 +121,8 @@ class Exp3Agent(tf_agent.TFAgent):
                                     policy=policy,
                                     collect_policy=policy,
                                     train_sequence_length=None)
+    self._as_trajectory = data_converter.AsTrajectory(
+        self.data_context, sequence_length=None)
 
   @property
   def num_actions(self):
@@ -155,6 +164,7 @@ class Exp3Agent(tf_agent.TFAgent):
         its own method of applying weights.
     """
     del weights  # unused
+    experience = self._as_trajectory(experience)
     reward = experience.reward
     log_prob = policy_step.get_log_probability(experience.policy_info)
     action = experience.action

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,6 +23,7 @@ import collections
 import cProfile
 import math
 import pstats
+from typing import cast, Mapping, Text, Any
 
 from absl.testing import parameterized
 from absl.testing.absltest import mock
@@ -460,6 +461,28 @@ class ActionDiscretizeWrapper(test_utils.TestCase):
       action = env.step([[0, 2], [1, 1]])
       np.testing.assert_array_almost_equal([[-10.0, 0.0], [0.0, 10.0]], action)
 
+  def test_action_mapping_nd_with_same_limits(self):
+    obs_spec = array_spec.BoundedArraySpec((2, 3), np.int32, -10, 10)
+    action_spec = array_spec.BoundedArraySpec((2, 2), np.float32, -10, 10)
+    limits = np.array([[3, 3], [3, 3]])
+
+    def mock_step(_, action):
+      return action
+
+    with mock.patch.object(
+        random_py_environment.RandomPyEnvironment,
+        '_step',
+        side_effect=mock_step,
+        autospec=True,
+    ):
+      env = random_py_environment.RandomPyEnvironment(
+          obs_spec, action_spec=action_spec)
+      env = wrappers.ActionDiscretizeWrapper(env, limits)
+      env.reset()
+
+      action = env.step([[0, 2], [1, 1]])
+      np.testing.assert_array_almost_equal([[-10.0, 10.0], [0.0, 0.0]], action)
+
   def test_shapes_broadcast(self):
     obs_spec = array_spec.BoundedArraySpec((2, 3), np.int32, -10, 10)
     action_spec = array_spec.BoundedArraySpec((2, 2), np.float32, -10, 10)
@@ -731,7 +754,7 @@ class FlattenObservationsWrapper(parameterized.TestCase):
     # Create the wrapper with list of observations to keep before packing it
     # into one dimension.
     env = wrappers.FlattenObservationsWrapper(
-        env, observations_whitelist=observations_to_keep)
+        env, observations_allowlist=observations_to_keep)
     time_step = env.step(
         array_spec.sample_bounded_spec(action_spec, np.random.RandomState()))
     # The expected shape is the sum of observation lengths in the observation
@@ -770,7 +793,7 @@ class FlattenObservationsWrapper(parameterized.TestCase):
 
   @parameterized.parameters(([array_spec.ArraySpec((1,), np.int32)],),
                             array_spec.ArraySpec((1,), np.int32))
-  def test_observations_wrong_spec_for_whitelist(self, observation_spec):
+  def test_observations_wrong_spec_for_allowlist(self, observation_spec):
     """Test the Wrapper has ValueError if the observation spec is invalid."""
     action_spec = array_spec.BoundedArraySpec((), np.int32, -10, 10)
 
@@ -780,9 +803,9 @@ class FlattenObservationsWrapper(parameterized.TestCase):
     # into one dimension.
     with self.assertRaises(ValueError):
       env = wrappers.FlattenObservationsWrapper(
-          env, observations_whitelist=['obs1'])
+          env, observations_allowlist=['obs1'])
 
-  def test_observations_unknown_whitelist(self):
+  def test_observations_unknown_allowlist(self):
     """Test the Wrapper has ValueError if given unknown keys."""
     action_spec = array_spec.BoundedArraySpec((), np.int32, -10, 10)
 
@@ -795,11 +818,11 @@ class FlattenObservationsWrapper(parameterized.TestCase):
     env = random_py_environment.RandomPyEnvironment(
         obs_spec, action_spec=action_spec)
 
-    whitelist_unknown_keys = ['obs1', 'obs4']
+    allowlist_unknown_keys = ['obs1', 'obs4']
 
     with self.assertRaises(ValueError):
       env = wrappers.FlattenObservationsWrapper(
-          env, observations_whitelist=whitelist_unknown_keys)
+          env, observations_allowlist=allowlist_unknown_keys)
 
   def test_observations_multiple_dtypes(self):
     """Test the Wrapper has ValueError if given unknown keys."""
@@ -888,12 +911,15 @@ class GoalReplayEnvWrapperTest(parameterized.TestCase):
                                                    np.random.RandomState())
     time_step = env.step(random_action)
     self.assertIsInstance(time_step.observation, dict)
-    self.assertEqual(time_step.observation.keys(),
-                     env.observation_spec().keys())
+    observation = cast(Mapping[Text, Any], time_step.observation)
+    observation_spec = cast(Mapping[Text, Any], env.observation_spec())
+    self.assertEqual(observation.keys(),
+                     observation_spec.keys())
     time_step = env.reset()
     self.assertIsInstance(time_step.observation, dict)
-    self.assertEqual(time_step.observation.keys(),
-                     env.observation_spec().keys())
+    observation = cast(Mapping[Text, Any], time_step.observation)
+    self.assertEqual(observation.keys(),
+                     observation_spec.keys())
 
   def test_batch_env(self):
     """Test batched version of the environment."""
@@ -913,12 +939,15 @@ class GoalReplayEnvWrapperTest(parameterized.TestCase):
 
     time_step = env.step(random_action)
     self.assertIsInstance(time_step.observation, dict)
-    self.assertEqual(time_step.observation.keys(),
-                     env.observation_spec().keys())
+    observation = cast(Mapping[Text, Any], time_step.observation)
+    observation_spec = cast(Mapping[Text, Any], env.observation_spec())
+    self.assertEqual(observation.keys(),
+                     observation_spec.keys())
     time_step = env.reset()
     self.assertIsInstance(time_step.observation, dict)
-    self.assertEqual(time_step.observation.keys(),
-                     env.observation_spec().keys())
+    observation = cast(Mapping[Text, Any], time_step.observation)
+    self.assertEqual(observation.keys(),
+                     observation_spec.keys())
 
 
 class HistoryWrapperTest(test_utils.TestCase):
@@ -957,6 +986,24 @@ class HistoryWrapperTest(test_utils.TestCase):
 
     time_step = history_env.step(0)
     self.assertEqual([1, 2, 3], time_step.observation.tolist())
+
+  def test_observation_tiled(self):
+    env = test_envs.CountingEnv()
+    # Force observations to be non zero for the test
+    env._episodes = 2
+    history_env = wrappers.HistoryWrapper(env, 3, tile_first_step_obs=True)
+    # Extra reset to make observations in base env not 0.
+    time_step = history_env.reset()
+    self.assertEqual([20, 20, 20], time_step.observation.tolist())
+
+    time_step = history_env.step(0)
+    self.assertEqual([20, 20, 21], time_step.observation.tolist())
+
+    time_step = history_env.step(0)
+    self.assertEqual([20, 21, 22], time_step.observation.tolist())
+
+    time_step = history_env.step(0)
+    self.assertEqual([21, 22, 23], time_step.observation.tolist())
 
   def test_observation_and_action_stacked(self):
     env = test_envs.CountingEnv()

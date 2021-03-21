@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,7 +29,6 @@ from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 from tf_agents.utils import common
 from tf_agents.utils import test_utils
-from tensorflow.python.framework import test_util  # pylint:disable=g-direct-tensorflow-import  # TF internal
 
 
 _POLICY_VARIABLES_OFFSET = 10.0
@@ -44,10 +43,9 @@ class DummyNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             encoding_dim,
-            kernel_initializer=tf.compat.v1.initializers.constant(
+            kernel_initializer=tf.constant_initializer(
                 np.ones([obs_dim, encoding_dim])),
-            bias_initializer=tf.compat.v1.initializers.constant(
-                np.zeros([encoding_dim])))
+            bias_initializer=tf.constant_initializer(np.zeros([encoding_dim])))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -62,10 +60,9 @@ def get_reward_layer(num_actions=5, encoding_dim=10):
   return tf.keras.layers.Dense(
       num_actions,
       activation=None,
-      kernel_initializer=tf.compat.v1.initializers.constant(
+      kernel_initializer=tf.constant_initializer(
           np.ones([encoding_dim, num_actions])),
-      bias_initializer=tf.compat.v1.initializers.constant(
-          np.array(range(num_actions))))
+      bias_initializer=tf.constant_initializer(np.array(range(num_actions))))
 
 
 def get_per_arm_reward_layer(encoding_dim=10):
@@ -73,8 +70,7 @@ def get_per_arm_reward_layer(encoding_dim=10):
       units=1,
       activation=None,
       use_bias=False,
-      kernel_initializer=tf.compat.v1.initializers.constant(
-          list(range(encoding_dim))))
+      kernel_initializer=tf.constant_initializer(list(range(encoding_dim))))
 
 
 def test_cases():
@@ -90,7 +86,6 @@ def test_cases():
       })
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class NeuralLinUCBPolicyTest(parameterized.TestCase, test_utils.TestCase):
 
   def setUp(self):

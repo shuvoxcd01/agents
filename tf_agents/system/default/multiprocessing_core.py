@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,6 +20,8 @@ import abc
 import multiprocessing as _multiprocessing
 
 from typing import Any, Text
+
+from absl import app
 
 __all__ = [
     'StateSaver',
@@ -73,7 +75,7 @@ def handle_main(parent_main_fn, *args, **kwargs):
   extra_state_savers = kwargs.pop('extra_state_savers', [])
   _STATE_SAVERS.extend(extra_state_savers)
   _INITIALIZED[0] = True
-  return parent_main_fn(*args, **kwargs)
+  return app.run(parent_main_fn, *args, **kwargs)
 
 
 def handle_test_main(parent_main_fn, *args, **kwargs):

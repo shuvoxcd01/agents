@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,11 +18,14 @@ from __future__ import absolute_import
 from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
-from tf_agents.bandits.policies import policy_utilities
-from tf_agents.bandits.specs import utils as bandit_spec_utils
+
+from typing import cast
+
+import tensorflow as tf
 from tf_agents.distributions import masked
 from tf_agents.policies import tf_policy
+from tf_agents.policies import utils as policy_utilities
+from tf_agents.specs import bandit_spec_utils
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step as ts
@@ -85,6 +88,7 @@ class RandomTFPolicy(tf_policy.TFPolicy):
             'RandomTFPolicy only supports action constraints for '
             'BoundedTensorSpec action specs.')
 
+      action_spec = cast(tensor_spec.BoundedTensorSpec, action_spec)
       scalar_shape = action_spec.shape.rank == 0
       single_dim_shape = (
           action_spec.shape.rank == 1 and action_spec.shape.dims == [1])
@@ -109,22 +113,24 @@ class RandomTFPolicy(tf_policy.TFPolicy):
       observation, mask = observation_and_action_constraint_splitter(
           time_step.observation)
 
+      action_spec = cast(tensor_spec.BoundedTensorSpec, self.action_spec)
       zero_logits = tf.cast(tf.zeros_like(mask), tf.float32)
       masked_categorical = masked.MaskedCategorical(zero_logits, mask)
-      action_ = tf.cast(masked_categorical.sample() + self.action_spec.minimum,
-                        self.action_spec.dtype)
+      action_ = tf.cast(masked_categorical.sample() + action_spec.minimum,
+                        action_spec.dtype)
 
       # If the action spec says each action should be shaped (1,), add another
       # dimension so the final shape is (B, 1) rather than (B,).
-      if self.action_spec.shape.rank == 1:
+      if action_spec.shape.rank == 1:
         action_ = tf.expand_dims(action_, axis=-1)
       policy_info = tensor_spec.sample_spec_nest(
           self._info_spec, outer_dims=outer_dims)
     else:
       observation = time_step.observation
+      action_spec = cast(tensor_spec.BoundedTensorSpec, self.action_spec)
 
       if self._accepts_per_arm_features:
-        max_num_arms = self._action_spec.maximum - self._action_spec.minimum + 1
+        max_num_arms = action_spec.maximum - action_spec.minimum + 1
         batch_size = tf.shape(time_step.step_type)[0]
         num_actions = observation.get(
             bandit_spec_utils.NUM_ACTIONS_FEATURE_KEY,
@@ -134,7 +140,7 @@ class RandomTFPolicy(tf_policy.TFPolicy):
         masked_categorical = masked.MaskedCategorical(zero_logits, mask)
         action_ = tf.nest.map_structure(
             lambda t: tf.cast(masked_categorical.sample() + t.minimum, t.dtype),
-            self._action_spec)
+            action_spec)
       else:
         action_ = tensor_spec.sample_spec_nest(
             self._action_spec, seed=seed, outer_dims=outer_dims)
@@ -161,8 +167,9 @@ class RandomTFPolicy(tf_policy.TFPolicy):
     if self.emit_log_probability:
       if (self._accepts_per_arm_features
           or observation_and_action_constraint_splitter is not None):
-        log_probability = masked_categorical.log_prob(action_ -
-                                                      self.action_spec.minimum)
+        action_spec = cast(tensor_spec.BoundedTensorSpec, self.action_spec)
+        log_probability = masked_categorical.log_prob(
+            action_ - action_spec.minimum)
       else:
         log_probability = tf.nest.map_structure(
             lambda s: _calculate_log_probability(outer_dims, s),

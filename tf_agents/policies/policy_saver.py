@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,10 +22,10 @@ from __future__ import print_function
 import copy
 import functools
 import os
-from typing import Callable, Dict, Tuple, Optional, Text
+from typing import Any, Callable, Dict, Tuple, Optional, Text, cast, Sequence
 
 from absl import logging
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tf_agents.policies import tf_policy
@@ -34,6 +34,10 @@ from tf_agents.trajectories import time_step as ts
 from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import nest_utils
+
+# pylint:disable=g-direct-tensorflow-import
+from tensorflow.python.eager import def_function  # TF internal
+# pylint:enable=g-direct-tensorflow-import
 
 
 POLICY_SPECS_PBTXT = 'policy_specs.pbtxt'
@@ -68,6 +72,12 @@ def _check_spec(spec):
         (tf.nest.map_structure(lambda s: s.name or '<MISSING>', spec),))
 
 
+def add_batch_dim(spec, outer_dims):
+  return tf.TensorSpec(
+      shape=tf.TensorShape(outer_dims).concatenate(spec.shape),
+      name=spec.name,
+      dtype=spec.dtype)
+
 InputFnType = Callable[[types.NestedTensor], Tuple[types.NestedTensor,
                                                    types.NestedTensor]]
 InputFnAndSpecType = Tuple[InputFnType, types.NestedTensorSpec]
@@ -78,9 +88,9 @@ class PolicySaver(object):
 
   The `save()` method exports a saved model to the requested export location.
   The SavedModel that is exported can be loaded via
-  `tf.compat.v2.saved_model.load` (or `tf.saved_model.load` in TF2).  It
-  will have available signatures (concrete functions): `action`,
-  `get_initial_state`, `get_train_step.
+  `tf.compat.v2.saved_model.load` (or `tf.saved_model.load` in TF2).  The
+  following signatures (concrete functions) are available: `action`,
+  `get_initial_state`, and `get_train_step`.
 
   The attribute `model_variables` is also available when the saved_model is
   loaded which gives access to model variables in order to update them if
@@ -251,6 +261,7 @@ class PolicySaver(object):
     if seed is not None:
 
       def action_fn(time_step, policy_state):
+        time_step = cast(ts.TimeStep, time_step)
         return original_action_fn(time_step, policy_state, seed=seed)
     else:
       action_fn = original_action_fn
@@ -258,6 +269,7 @@ class PolicySaver(object):
     def distribution_fn(time_step, policy_state):
       """Wrapper for policy.distribution() in the SavedModel."""
       try:
+        time_step = cast(ts.TimeStep, time_step)
         outs = policy.distribution(
             time_step=time_step, policy_state=policy_state)
         return tf.nest.map_structure(_composite_distribution, outs)
@@ -265,7 +277,7 @@ class PolicySaver(object):
         # TODO(b/156526399): Move this to just the policy.distribution() call
         # once tfp.experimental.as_composite() properly handles LinearOperator*
         # components as well as TransformedDistributions.
-        logging.warn(
+        logging.warning(
             'WARNING: Could not serialize policy.distribution() for policy '
             '"%s". Calling saved_model.distribution() will raise the following '
             'assertion error: %s', policy, e)
@@ -284,16 +296,12 @@ class PolicySaver(object):
     get_metadata_fn = common.function(
         lambda: saved_policy.metadata).get_concrete_function()
 
-    def add_batch_dim(spec):
-      return tf.TensorSpec(
-          shape=tf.TensorShape([batch_size]).concatenate(spec.shape),
-          name=spec.name,
-          dtype=spec.dtype)
-
-    batched_time_step_spec = tf.nest.map_structure(add_batch_dim,
-                                                   policy.time_step_spec)
-    batched_policy_state_spec = tf.nest.map_structure(add_batch_dim,
-                                                      policy.policy_state_spec)
+    batched_time_step_spec = tf.nest.map_structure(
+        lambda spec: add_batch_dim(spec, [batch_size]), policy.time_step_spec)
+    batched_time_step_spec = cast(ts.TimeStep, batched_time_step_spec)
+    batched_policy_state_spec = tf.nest.map_structure(
+        lambda spec: add_batch_dim(spec, [batch_size]),
+        policy.policy_state_spec)
 
     policy_step_spec = policy.policy_step_spec
     policy_state_spec = policy.policy_state_spec
@@ -329,8 +337,8 @@ class PolicySaver(object):
             action_fn_input_spec, action_inputs)
         return distribution_fn(*action_inputs)
 
-      batched_input_spec = tf.nest.map_structure(add_batch_dim,
-                                                 input_fn_and_spec[1])
+      batched_input_spec = tf.nest.map_structure(
+          lambda spec: add_batch_dim(spec, [batch_size]), input_fn_and_spec[1])
       # We call get_concrete_function() for its side effect: to ensure the
       # proper ConcreteFunction is stored in the SavedModel.
       polymorphic_action_fn.get_concrete_function(example=batched_input_spec)
@@ -426,7 +434,7 @@ class PolicySaver(object):
       saved_policy._all_assets = policy._unconditional_checkpoint_dependencies  # pylint: disable=protected-access
     except AttributeError as e:
       if '_self_unconditional' in str(e):
-        logging.warn(
+        logging.warning(
             'Unable to capture all trackable objects in policy "%s".  This '
             'may be okay.  Error: %s', policy, e)
       else:
@@ -451,6 +459,10 @@ class PolicySaver(object):
       A nest of specs.
     """
     return self._action_input_spec
+
+  @property
+  def policy(self):
+    return self._policy
 
   @property
   def policy_step_spec(self) -> types.NestedTensorSpec:
@@ -507,6 +519,70 @@ class PolicySaver(object):
       return {k: self._metadata[k].numpy() for k in self._metadata}
     else:
       return self._metadata
+
+  def register_function(self,
+                        name: str,
+                        fn: InputFnType,
+                        input_spec: types.NestedTensorSpec,
+                        outer_dims: Sequence[Optional[int]] = (None,)) -> None:
+    """Registers a function into the saved model.
+
+    Note: There is no easy way to generate polymorphic functions. This pattern
+    can be followed and the `get_concerete_function` can be called with named
+    parameters to register more complex signatures. Those functions can then be
+    passed to the `register_concrete_function` method.
+
+    Args:
+      name: Name of the attribute to use for the saved fn.
+      fn: Function to register. Must be a callable following the input_spec as
+        a single parameter.
+      input_spec: A nest of tf.TypeSpec representing the time_steps.
+        Provided by the user.
+      outer_dims: The outer dimensions the saved fn will process at a time. By
+        default a batch dimension is added to the input_spec.
+    """
+    if getattr(self._policy, name, None) is not None:
+      raise ValueError('Policy already has an attribute registered with: %s' %
+                       name)
+
+    batched_spec = tf.nest.map_structure(lambda s: add_batch_dim(s, outer_dims),
+                                         input_spec)
+    tf_fn = common.function(fn)
+    # We call get_concrete_function() for its side effect: to ensure the proper
+    # ConcreteFunction is stored in the SavedModel.
+    tf_fn.get_concrete_function(batched_spec)
+    setattr(self._policy, name, tf_fn)
+
+  def register_concrete_function(
+      self,
+      name: str,
+      fn: def_function.Function,
+      assets: Optional[Any] = None
+  ) -> None:
+    """Registers a function into the saved model.
+
+    This gives you the flexibility to register any kind of polymorphic function
+    by creating the concrete function that you wish to register.
+
+    Args:
+      name: Name of the attribute to use for the saved fn.
+      fn: Function to register. Must be a callable following the input_spec as
+        a single parameter.
+      assets: Any extra checkpoint dependencies that must be captured in the
+        module. Note variables are automatically captured.
+    """
+    if getattr(self._policy, name, None) is not None:
+      raise ValueError('Policy already has an attribute registered with: %s' %
+                       name)
+
+    setattr(self._policy, name, fn)
+
+    # TODO(b/182272788): Make `._list_all_concrete_functions` public.
+    for i, concrete_fn in enumerate(fn._list_all_concrete_functions()):  # pylint: disable=protected-access
+      setattr(self._policy, name + '__variables_%d' % i, concrete_fn.variables)
+
+    if assets:
+      setattr(self._policy, name + '__assets', assets)
 
   def save(self,
            export_dir: Text,

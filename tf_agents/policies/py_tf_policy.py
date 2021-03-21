@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +22,7 @@ from __future__ import print_function
 from typing import Optional, Text
 from absl import logging
 
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 from tf_agents.policies import py_policy
 from tf_agents.policies import tf_policy
 from tf_agents.specs import tensor_spec
@@ -196,7 +196,9 @@ class PyTFPolicy(py_policy.PyPolicy, session_utils.SessionUser):
                                                         batch_size))
     return self.session.run(self._tf_initial_state)
 
-  def _action(self, time_step, policy_state):
+  def _action(self, time_step, policy_state, seed: Optional[types.Seed] = None):
+    if seed is not None:
+      raise ValueError('`seed` is passed to the class as an argument.')
     if not self._built:
       self._build_from_time_step(time_step)
 

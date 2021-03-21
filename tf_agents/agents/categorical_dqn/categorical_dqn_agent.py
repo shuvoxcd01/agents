@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,7 +30,7 @@ from __future__ import print_function
 from typing import Optional, Text
 
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 
 from tf_agents.agents import tf_agent
 from tf_agents.agents.dqn import dqn_agent
@@ -62,9 +62,9 @@ class CategoricalDqnAgent(dqn_agent.DqnAgent):
           types.Splitter] = None,
       min_q_value: types.Float = -10.0,
       max_q_value: types.Float = 10.0,
-      epsilon_greedy: types.Float = 0.1,
+      epsilon_greedy: Optional[types.FloatOrReturningFloat] = 0.1,
       n_step_update: int = 1,
-      boltzmann_temperature: Optional[types.Float] = None,
+      boltzmann_temperature: Optional[types.FloatOrReturningFloat] = None,
       # Params for target network updates
       target_categorical_q_network: Optional[network.Network] = None,
       target_update_tau: types.Float = 1.0,
@@ -112,7 +112,8 @@ class CategoricalDqnAgent(dqn_agent.DqnAgent):
         the support.
       epsilon_greedy: probability of choosing a random action in the default
         epsilon-greedy collect policy (used only if a wrapper is not provided to
-        the collect_policy method).
+        the collect_policy method). Only one of epsilon_greedy and
+        boltzmann_temperature should be provided.
       n_step_update: The number of steps to consider when computing TD error and
         TD loss. Defaults to single-step updates. Note that this requires the
         user to call train on Trajectory objects with a time dimension of
@@ -121,7 +122,8 @@ class CategoricalDqnAgent(dqn_agent.DqnAgent):
         `q_network.state_spec`).
       boltzmann_temperature: Temperature value to use for Boltzmann sampling of
         the actions during data collection. The closer to 0.0, the higher the
-        probability of choosing the best action.
+        probability of choosing the best action. Only one of epsilon_greedy and
+        boltzmann_temperature should be provided.
       target_categorical_q_network: (Optional.)  A `tf_agents.network.Network`
         to be used as the target network during Q learning.  Every
         `target_update_period` train steps, the weights from
@@ -289,10 +291,6 @@ class CategoricalDqnAgent(dqn_agent.DqnAgent):
       ValueError:
         if the number of actions is greater than 1.
     """
-    # Check that `experience` includes two outer dimensions [B, T, ...]. This
-    # method requires a time dimension to compute the loss properly.
-    self._check_trajectory_dimensions(experience)
-
     squeeze_time_dim = not self._q_network.state_spec
     if self._n_step_update == 1:
       time_steps, policy_steps, next_time_steps = (

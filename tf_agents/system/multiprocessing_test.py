@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -82,6 +82,11 @@ class MultiprocessingTest(test_utils.TestCase):
     x = 1
     values = p.map(x.__add__, [3, 4, 5, 6, 6])
     self.assertEqual(values, [4, 5, 6, 7, 7])
+
+  def testArgExpected(self):
+    no_argument_main_fn = lambda: None
+    with self.assertRaises(TypeError):
+      multiprocessing.handle_main(no_argument_main_fn)
 
 
 if __name__ == '__main__':

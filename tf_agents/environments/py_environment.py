@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -51,7 +51,7 @@ class PyEnvironment(object):
   def __init__(self):
     self._current_time_step = None
     common.assert_members_are_not_overridden(
-        base_cls=PyEnvironment, instance=self, black_list=('reset', 'step'))
+        base_cls=PyEnvironment, instance=self, denylist=('reset', 'step'))
 
   @property
   def batched(self) -> bool:
@@ -259,7 +259,7 @@ class PyEnvironment(object):
     del seed  # unused
     raise NotImplementedError('No seed support for this environment.')
 
-  def get_info(self) -> Any:
+  def get_info(self) -> types.NestedArray:
     """Returns the environment info returned on the last step.
 
     Returns:

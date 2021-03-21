@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -198,15 +198,20 @@ class TrajectoryTest(test_utils.TestCase):
         next_step_type=np.array([[mid, last, first]]),
         observation=np.array([[10.0, 20.0, 30.0]]),
         action=np.array([[11.0, 22.0, 33.0]]),
-        # reward at step 0 is an invalid dummy reward.
+        # reward at step 2 is an invalid dummy reward.
         reward=np.array([[0.0, 1.0, 2.0]]),
         discount=np.array([[1.0, 1.0, 0.0]]),
         policy_info=np.array([[1.0, 2.0, 3.0]]))
 
-    time_steps, policy_steps, next_time_steps = trajectory.to_transition(traj)
+    transition = trajectory.to_transition(traj)
+    self.assertIsInstance(transition, trajectory.Transition)
+    time_steps, policy_steps, next_time_steps = transition
 
     self.assertAllEqual(time_steps.step_type, np.array([[first, mid]]))
     self.assertAllEqual(time_steps.observation, np.array([[10.0, 20.0]]))
+    # reward and discount are filled with zero (dummy) values
+    self.assertAllEqual(time_steps.reward, np.array([[0.0, 0.0]]))
+    self.assertAllEqual(time_steps.discount, np.array([[0.0, 0.0]]))
 
     self.assertAllEqual(next_time_steps.step_type, np.array([[mid, last]]))
     self.assertAllEqual(next_time_steps.observation, np.array([[20.0, 30.0]]))
@@ -215,6 +220,80 @@ class TrajectoryTest(test_utils.TestCase):
 
     self.assertAllEqual(policy_steps.action, np.array([[11.0, 22.0]]))
     self.assertAllEqual(policy_steps.info, np.array([[1.0, 2.0]]))
+
+  def testToNStepTransitionForNEquals1(self):
+    first = ts.StepType.FIRST
+    last = ts.StepType.LAST
+
+    # Define a batch size 1, 2-step trajectory.
+    traj = trajectory.Trajectory(
+        step_type=np.array([[first, last]]),
+        next_step_type=np.array([[last, first]]),
+        observation=np.array([[10.0, 20.0]]),
+        action=np.array([[11.0, 22.0]]),
+        # reward & discount values at step 1 is an invalid dummy reward.
+        reward=np.array([[-1.0, 0.0]]),
+        discount=np.array([[0.9, 0.0]]),
+        policy_info=np.array([[10.0, 20.0]]))
+
+    transition = trajectory.to_n_step_transition(traj, gamma=0.5)
+    self.assertIsInstance(transition, trajectory.Transition)
+    time_steps, policy_steps, next_time_steps = transition
+
+    self.assertAllEqual(time_steps.step_type, np.array([first]))
+    self.assertAllEqual(time_steps.observation, np.array([10.0]))
+    self.assertAllEqual(time_steps.reward, np.array([np.nan]))
+    self.assertAllEqual(time_steps.discount, np.array([np.nan]))
+
+    self.assertAllEqual(next_time_steps.step_type, np.array([last]))
+    self.assertAllEqual(next_time_steps.observation, np.array([20.0]))
+    # r0
+    self.assertAllEqual(next_time_steps.reward, np.array([-1.0]))
+    # d0
+    self.assertAllEqual(next_time_steps.discount, np.array([0.9]))
+
+    self.assertAllEqual(policy_steps.action, np.array([11.0]))
+    self.assertAllEqual(policy_steps.info, np.array([10.0]))
+
+  def testToNStepTransition(self):
+    first = ts.StepType.FIRST
+    mid = ts.StepType.MID
+    last = ts.StepType.LAST
+    gamma = 0.5
+
+    # Define a batch size 1, 4-step trajectory.
+    traj = trajectory.Trajectory(
+        step_type=np.array([[first, mid, mid, last]]),
+        next_step_type=np.array([[mid, mid, last, first]]),
+        observation=np.array([[10.0, 20.0, 30.0, 40.0]]),
+        action=np.array([[11.0, 22.0, 33.0, 44.0]]),
+        # reward & discount values at step 3 is an invalid dummy reward.
+        reward=np.array([[-1.0, 1.0, 2.0, 0.0]]),
+        discount=np.array([[0.9, 0.95, 1.0, 0.0]]),
+        policy_info=np.array([[10.0, 20.0, 30.0, 40.0]]))
+
+    transition = trajectory.to_n_step_transition(traj, gamma=gamma)
+    self.assertIsInstance(transition, trajectory.Transition)
+    time_steps, policy_steps, next_time_steps = transition
+
+    self.assertAllEqual(time_steps.step_type, np.array([first]))
+    self.assertAllEqual(time_steps.observation, np.array([10.0]))
+    self.assertAllEqual(time_steps.reward, np.array([np.nan]))
+    self.assertAllEqual(time_steps.discount, np.array([np.nan]))
+
+    self.assertAllEqual(next_time_steps.step_type, np.array([last]))
+    self.assertAllEqual(next_time_steps.observation, np.array([40.0]))
+    # r0 + r1 * g * d0 + r2 * g * d0 * d1
+    #   == -1.0 + 1.0*0.5*(0.9) + 2.0*(0.5**2)*(0.9*0.95)
+    self.assertAllEqual(
+        next_time_steps.reward,
+        np.array([-1.0 + 1.0 * gamma * 0.9 + 2.0 * gamma**2 * 0.9 * 0.95]))
+    # gamma**2 * (d0 * d1 * d2)
+    self.assertAllEqual(
+        next_time_steps.discount, np.array([gamma**2 * (0.9 * 0.95 * 1.0)]))
+
+    self.assertAllEqual(policy_steps.action, np.array([11.0]))
+    self.assertAllEqual(policy_steps.info, np.array([10.0]))
 
   def testToTransitionHandlesTrajectoryFromDriverCorrectly(self):
     env = tf_py_environment.TFPyEnvironment(
@@ -233,8 +312,9 @@ class TrajectoryTest(test_utils.TestCase):
     self.evaluate(run_driver)
     trajectories = self.evaluate(rb_gather_all)
 
-    time_steps, policy_step, next_time_steps = trajectory.to_transition(
-        trajectories)
+    transitions = trajectory.to_transition(trajectories)
+    self.assertIsInstance(transitions, trajectory.Transition)
+    time_steps, policy_step, next_time_steps = transitions
 
     self.assertAllEqual(time_steps.observation,
                         trajectories.observation[:, :-1])
@@ -255,7 +335,9 @@ class TrajectoryTest(test_utils.TestCase):
     policy = drivers_test_utils.TFPolicyMock(
         env.time_step_spec(), env.action_spec())
     trajectory_spec = policy.trajectory_spec
-    ts_spec, ps_spec, nts_spec = trajectory.to_transition_spec(trajectory_spec)
+    transition_spec = trajectory.to_transition_spec(trajectory_spec)
+    self.assertIsInstance(transition_spec, trajectory.Transition)
+    ts_spec, ps_spec, nts_spec = transition_spec
 
     self.assertAllEqual(ts_spec, env.time_step_spec())
     self.assertAllEqual(ps_spec.action, env.action_spec())

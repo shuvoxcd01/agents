@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -24,9 +24,9 @@ import math
 from absl.testing import parameterized
 import numpy as np
 import tensorflow as tf
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.bandits.specs import utils as bandit_spec_utils
 from tf_agents.policies import random_tf_policy
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 from tf_agents.utils import nest_utils
@@ -99,7 +99,7 @@ class RandomTFPolicyTest(test_utils.TestCase, parameterized.TestCase):
     bounded = tensor_spec.BoundedTensorSpec.from_spec(action_spec[0])
     time_step_spec, time_step = self.create_time_step()
     policy = random_tf_policy.RandomTFPolicy(
-        time_step_spec=time_step_spec, action_spec=action_spec)
+        time_step_spec=time_step_spec, action_spec=action_spec)  # pytype: disable=wrong-arg-types
 
     action_step = policy.action(time_step)
     tf.nest.assert_same_structure(action_spec, action_step.action)

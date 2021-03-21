@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -29,13 +29,12 @@ from tf_agents.bandits.agents import mixture_agent
 from tf_agents.bandits.agents import neural_epsilon_greedy_agent
 from tf_agents.bandits.drivers import driver_utils
 from tf_agents.bandits.policies import mixture_policy
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.networks import q_network
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step
 from tf_agents.utils import test_utils
-from tensorflow.python.framework import test_util  # pylint: disable=g-direct-tensorflow-import  # TF internal
 
 tfd = tfp.distributions
 
@@ -131,7 +130,6 @@ def _get_experience(initial_step, action_step, final_step):
       lambda x: tf.expand_dims(tf.convert_to_tensor(x), 1), single_experience)
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class MixtureAgentTest(test_utils.TestCase, parameterized.TestCase):
 
   def setUp(self):

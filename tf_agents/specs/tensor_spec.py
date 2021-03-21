@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -71,6 +71,9 @@ def from_spec(spec):
 
 def to_array_spec(tensor_spec):
   """Converts TensorSpec into ArraySpec."""
+  if isinstance(tensor_spec, array_spec.ArraySpec):
+    return tensor_spec
+
   if hasattr(tensor_spec, "minimum") and hasattr(tensor_spec, "maximum"):
     return array_spec.BoundedArraySpec(
         tensor_spec.shape.as_list(),

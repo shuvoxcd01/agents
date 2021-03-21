@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,11 +20,10 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
-from typing import Optional, Text
+from typing import Optional, Text, cast
 
 import gin
-import numpy as np
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tf_agents.distributions import shifted_categorical
@@ -93,6 +92,7 @@ class QPolicy(tf_policy.TFPolicy):
     network_action_spec = getattr(q_network, 'action_spec', None)
 
     if network_action_spec is not None:
+      action_spec = cast(tf.TypeSpec, action_spec)
       if not action_spec.is_compatible_with(network_action_spec):
         raise ValueError(
             'action_spec must be compatible with q_network.action_spec; '
@@ -157,9 +157,10 @@ class QPolicy(tf_policy.TFPolicy):
     logits = q_values
 
     if observation_and_action_constraint_splitter is not None:
-      # Overwrite the logits for invalid actions to -inf.
-      neg_inf = tf.constant(-np.inf, dtype=logits.dtype)
-      logits = tf.compat.v2.where(tf.cast(mask, tf.bool), logits, neg_inf)
+      # Overwrite the logits for invalid actions to logits.dtype.min.
+      almost_neg_inf = tf.constant(logits.dtype.min, dtype=logits.dtype)
+      logits = tf.compat.v2.where(
+          tf.cast(mask, tf.bool), logits, almost_neg_inf)
 
     if self._flat_action_spec.minimum != 0:
       distribution = shifted_categorical.ShiftedCategorical(

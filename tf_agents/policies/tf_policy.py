@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -202,7 +202,7 @@ class TFPolicy(tf.Module):
       log_probability_spec = tf.nest.map_structure(
           lambda _: log_probability_spec, action_spec)
       info_spec = policy_step.set_log_probability(info_spec,
-                                                  log_probability_spec)
+                                                  log_probability_spec)  # pytype: disable=wrong-arg-types
 
     self._info_spec = info_spec
     self._setup_specs()
@@ -541,7 +541,7 @@ class TFPolicy(tf.Module):
   # Subclasses MAY optionally override _action.
   def _action(self, time_step: ts.TimeStep,
               policy_state: types.NestedTensor,
-              seed: Optional[types.Seed]) -> policy_step.PolicyStep:
+              seed: Optional[types.Seed] = None) -> policy_step.PolicyStep:
     """Implementation of `action`.
 
     Args:
@@ -557,7 +557,7 @@ class TFPolicy(tf.Module):
         `info`: Optional side information such as action log probabilities.
     """
     seed_stream = tfp.util.SeedStream(seed=seed, salt='tf_agents_tf_policy')
-    distribution_step = self._distribution(time_step, policy_state)
+    distribution_step = self._distribution(time_step, policy_state)  # pytype: disable=wrong-arg-types
     actions = tf.nest.map_structure(
         lambda d: reparameterized_sampling.sample(d, seed=seed_stream()),
         distribution_step.action)

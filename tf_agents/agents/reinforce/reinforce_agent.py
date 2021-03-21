@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,7 +16,7 @@
 """A REINFORCE Agent.
 
 Implements the REINFORCE algorithm from (Williams, 1992):
-http://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
+https://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -30,6 +30,7 @@ import gin
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.networks import network
 from tf_agents.policies import actor_policy
@@ -122,7 +123,7 @@ class ReinforceAgent(tf_agent.TFAgent):
   "Simple statistical gradient-following algorithms for connectionist
   reinforcement learning"
   Williams, R.J., 1992.
-  http://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
+  https://www-anw.cs.umass.edu/~barto/courses/cs687/williams92simple.pdf
 
   REINFORCE with state-value baseline, where state-values are estimated with
   function approximation, from
@@ -238,11 +239,14 @@ class ReinforceAgent(tf_agent.TFAgent):
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
         train_step_counter=train_step_counter)
+    self._as_trajectory = data_converter.AsTrajectory(self.data_context)
 
   def _initialize(self):
     pass
 
   def _train(self, experience, weights=None):
+    experience = self._as_trajectory(experience)
+
     # Add a mask to ensure we reset the return calculation at episode
     # boundaries. This is needed in cases where episodes are truncated before
     # reaching a terminal state. Note experience is a batch of trajectories
@@ -391,7 +395,7 @@ class ReinforceAgent(tf_agent.TFAgent):
       losses_dict['value_network_regularization_loss'] = (
           value_network_regularization_loss)
 
-    loss_info_extra = ReinforceAgentLossInfo._make(losses_dict)
+    loss_info_extra = ReinforceAgentLossInfo(**losses_dict)
 
     losses_dict['total_loss'] = total_loss  # Total loss not in loss_info_extra.
 

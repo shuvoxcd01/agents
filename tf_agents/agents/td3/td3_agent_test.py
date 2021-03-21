@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,10 +21,13 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+
 from tf_agents.agents.td3 import td3_agent
 from tf_agents.networks import network
 from tf_agents.specs import tensor_spec
+from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step as ts
+from tf_agents.trajectories import trajectory
 from tf_agents.utils import common
 from tf_agents.utils import test_utils
 
@@ -51,8 +54,8 @@ class DummyActorNetwork(network.Network):
     self._layer = tf.keras.layers.Dense(
         self._single_action_spec.shape.num_elements(),
         activation=activation,
-        kernel_initializer=tf.compat.v1.initializers.constant([2, 1]),
-        bias_initializer=tf.compat.v1.initializers.constant([5]),
+        kernel_initializer=tf.constant_initializer([2, 1]),
+        bias_initializer=tf.constant_initializer([5]),
         name='action')
     self._shared_layer = shared_layer
 
@@ -85,8 +88,8 @@ class DummyCriticNetwork(network.Network):
     self._joint_layer = tf.keras.layers.Dense(
         1,
         activation=None,
-        kernel_initializer=tf.compat.v1.initializers.constant([1, 3, 2]),
-        bias_initializer=tf.compat.v1.initializers.constant([4]))
+        kernel_initializer=tf.constant_initializer([1, 3, 2]),
+        bias_initializer=tf.constant_initializer([4]))
 
   def call(self, inputs, step_type=None, network_state=()):
     observations, actions = inputs
@@ -105,7 +108,9 @@ class TD3AgentTest(test_utils.TestCase):
 
   def setUp(self):
     super(TD3AgentTest, self).setUp()
-    self._obs_spec = [tensor_spec.TensorSpec([2], tf.float32)]
+    self._obs_spec = [
+        tensor_spec.BoundedTensorSpec([2], tf.float32, minimum=0, maximum=1)
+    ]
     self._time_step_spec = ts.time_step_spec(self._obs_spec)
     self._action_spec = [tensor_spec.BoundedTensorSpec([1], tf.float32, -1, 1)]
 
@@ -125,6 +130,55 @@ class TD3AgentTest(test_utils.TestCase):
         actor_optimizer=None,
         critic_optimizer=None,
         )
+
+  def testAgentTrajectoryTrain(self):
+    agent = td3_agent.Td3Agent(
+        self._time_step_spec,
+        self._action_spec,
+        critic_network=self._critic_net,
+        actor_network=self._bounded_actor_net,
+        actor_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        critic_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        )
+
+    trajectory_spec = trajectory.Trajectory(
+        step_type=self._time_step_spec.step_type,
+        observation=self._time_step_spec.observation,
+        action=self._action_spec,
+        policy_info=(),
+        next_step_type=self._time_step_spec.step_type,
+        reward=tensor_spec.BoundedTensorSpec(
+            [], tf.float32, minimum=0.0, maximum=1.0, name='reward'),
+        discount=self._time_step_spec.discount)
+
+    sample_trajectory_experience = tensor_spec.sample_spec_nest(
+        trajectory_spec, outer_dims=(3, 2))
+    agent.train(sample_trajectory_experience)
+
+  def testAgentTransitionTrain(self):
+    agent = td3_agent.Td3Agent(
+        self._time_step_spec,
+        self._action_spec,
+        critic_network=self._critic_net,
+        actor_network=self._bounded_actor_net,
+        actor_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        critic_optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        )
+
+    time_step_spec = self._time_step_spec._replace(
+        reward=tensor_spec.BoundedTensorSpec(
+            [], tf.float32, minimum=0.0, maximum=1.0, name='reward'))
+
+    transition_spec = trajectory.Transition(
+        time_step=time_step_spec,
+        action_step=policy_step.PolicyStep(action=self._action_spec,
+                                           state=(),
+                                           info=()),
+        next_time_step=time_step_spec)
+
+    sample_trajectory_experience = tensor_spec.sample_spec_nest(
+        transition_spec, outer_dims=(3,))
+    agent.train(sample_trajectory_experience)
 
   def testCriticLoss(self):
     # The loss is now 119.3098526. Investigate this.
@@ -178,6 +232,45 @@ class TD3AgentTest(test_utils.TestCase):
     loss_ = self.evaluate(loss)
     self.assertAllClose(loss_, expected_loss)
 
+  def testBatchedActorLoss(self):
+
+    class FakeCriticNetwork(network.Network):
+      """Fake critic network with random output Q value of a specified shape."""
+
+      def __init__(self, input_tensor_spec, output_shape, name=None):
+        self._output_shape = output_shape
+        super(FakeCriticNetwork, self).__init__(
+            input_tensor_spec, state_spec=(), name=name)
+
+      def call(self, inputs, step_type=None, network_state=()):
+        q_value = tf.random.uniform(
+            self._output_shape, minval=0, maxval=1, dtype=tf.dtypes.float32,
+        )
+        return q_value, network_state
+
+    critic_input_spec = (self._obs_spec, self._action_spec)
+    critic_net = FakeCriticNetwork(critic_input_spec, output_shape=(2, 1),)
+    obs_spec = [
+        tensor_spec.BoundedTensorSpec([1], tf.float32, minimum=0, maximum=1)
+    ]
+    time_step_spec = ts.time_step_spec(obs_spec)
+    agent = td3_agent.Td3Agent(
+        time_step_spec,
+        self._action_spec,
+        critic_network=critic_net,
+        actor_network=self._unbounded_actor_net,
+        actor_optimizer=None,
+        critic_optimizer=None)
+
+    observations = [tf.constant([[1, 2], [3, 4]], dtype=tf.float32)]
+    time_steps = ts.restart(observations, batch_size=2)
+
+    loss = agent.actor_loss(time_steps)
+    self.evaluate(tf.compat.v1.global_variables_initializer())
+    # Ensures that the actor loss calculation does not err out when the critic
+    # output has rank > 1.
+    self.evaluate(loss)
+
   def testPolicyProducesBoundedAction(self):
     agent = td3_agent.Td3Agent(
         self._time_step_spec,
@@ -228,8 +321,8 @@ class TD3AgentTest(test_utils.TestCase):
 
     shared_layer = tf.keras.layers.Dense(
         2,
-        kernel_initializer=tf.compat.v1.initializers.constant([0]),
-        bias_initializer=tf.compat.v1.initializers.constant([0]),
+        kernel_initializer=tf.constant_initializer([0]),
+        bias_initializer=tf.constant_initializer([0]),
         name='shared')
 
     critic_net_1 = DummyCriticNetwork(input_spec, shared_layer=shared_layer)
@@ -243,8 +336,8 @@ class TD3AgentTest(test_utils.TestCase):
 
     target_shared_layer = tf.keras.layers.Dense(
         2,
-        kernel_initializer=tf.compat.v1.initializers.constant([0]),
-        bias_initializer=tf.compat.v1.initializers.constant([0]),
+        kernel_initializer=tf.constant_initializer([0]),
+        bias_initializer=tf.constant_initializer([0]),
         name='shared')
 
     target_critic_net_1 = DummyCriticNetwork(

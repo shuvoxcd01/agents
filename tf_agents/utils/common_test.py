@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,6 +28,7 @@ import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
 from tf_agents.networks import test_utils as networks_test_utils
+from tf_agents.specs import array_spec
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 from tf_agents.utils import common
@@ -336,13 +337,13 @@ class ClipToSpecTest(test_utils.TestCase):
 class ScaleToSpecTest(test_utils.TestCase):
 
   def testSpecMeansAndMagnitudes(self):
-    spec = tensor_spec.BoundedTensorSpec(
+    spec = array_spec.BoundedArraySpec(
         (3, 2),
-        tf.float32,
-        [[-5, -5], [-4, -4], [-2, -6]],
-        [[5, 5], [4, 4], [2, 6]],
+        np.float32,
+        np.array([[-5, -5], [-4, -4], [-2, -6]]),
+        np.array([[5, 5], [4, 4], [2, 6]]),
     )
-    means, magnitudes = self.evaluate(common.spec_means_and_magnitudes(spec))
+    means, magnitudes = common.spec_means_and_magnitudes(spec)
     expected_means = np.zeros((3, 2), dtype=np.float32)
     expected_magnitudes = np.array([[5.0, 5.0], [4.0, 4.0], [2.0, 6.0]],
                                    dtype=np.float32)

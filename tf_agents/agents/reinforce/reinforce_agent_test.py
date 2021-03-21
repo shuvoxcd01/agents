@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from absl.testing.absltest import mock
 
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tf_agents.agents.reinforce import reinforce_agent
@@ -30,12 +30,11 @@ from tf_agents.networks import actor_distribution_rnn_network
 from tf_agents.networks import network
 from tf_agents.networks import utils as network_utils
 from tf_agents.specs import tensor_spec
+from tf_agents.trajectories import policy_step
 from tf_agents.trajectories import time_step as ts
 from tf_agents.trajectories import trajectory
 from tf_agents.utils import common
 from tf_agents.utils import nest_utils
-
-from tensorflow.python.util import nest  # pylint:disable=g-direct-tensorflow-import  # TF internal
 
 
 class DummyActorNet(network.Network):
@@ -63,9 +62,8 @@ class DummyActorNet(network.Network):
         tf.keras.layers.Dense(
             single_action_spec.shape.num_elements() * 2,
             activation=activation_fn,
-            kernel_initializer=tf.compat.v1.initializers.constant(
-                [[2, 1], [1, 1]]),
-            bias_initializer=tf.compat.v1.initializers.constant(5),
+            kernel_initializer=tf.constant_initializer([[2, 1], [1, 1]]),
+            bias_initializer=tf.constant_initializer(5),
         ),
     ]
 
@@ -77,14 +75,19 @@ class DummyActorNet(network.Network):
       states = layer(states)
 
     single_action_spec = tf.nest.flatten(self._output_tensor_spec)[0]
-    actions, stdevs = states[..., 0], states[..., 1]
+    # action_spec is TensorSpec([1], ...) so make sure there's an outer dim.
+    actions = states[..., 0]
+    stdevs = states[..., 1]
     actions = tf.reshape(actions, [-1] + single_action_spec.shape.as_list())
     stdevs = tf.reshape(stdevs, [-1] + single_action_spec.shape.as_list())
     actions = tf.nest.pack_sequence_as(self._output_tensor_spec, [actions])
     stdevs = tf.nest.pack_sequence_as(self._output_tensor_spec, [stdevs])
 
-    distribution = nest.map_structure_up_to(
-        self._output_tensor_spec, tfp.distributions.Normal, actions, stdevs)
+    distribution = nest_utils.map_structure_up_to(
+        self._output_tensor_spec,
+        tfp.distributions.MultivariateNormalDiag,
+        actions,
+        stdevs)
     return distribution, network_state
 
 
@@ -96,8 +99,8 @@ class DummyValueNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             1,
-            kernel_initializer=tf.compat.v1.initializers.constant([2, 1]),
-            bias_initializer=tf.compat.v1.initializers.constant([5]))
+            kernel_initializer=tf.constant_initializer([2, 1]),
+            bias_initializer=tf.constant_initializer([5]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -585,6 +588,11 @@ class ReinforceAgentTest(tf.test.TestCase, parameterized.TestCase):
 
     # Rewards on the StepType.FIRST should be counted.
     expected_loss = 10.8935775757
+    expected_policy_gradient_loss = 10.8935775757
+    expected_policy_network_regularization_loss = 0
+    expected_entropy_regularization_loss = 0
+    expected_value_estimation_loss = 0
+    expected_value_network_regularization_loss = 0
 
     if tf.executing_eagerly():
       loss = lambda: agent.train(experience)
@@ -594,6 +602,16 @@ class ReinforceAgentTest(tf.test.TestCase, parameterized.TestCase):
     self.evaluate(tf.compat.v1.global_variables_initializer())
     loss_info = self.evaluate(loss)
     self.assertAllClose(loss_info.loss, expected_loss)
+    self.assertAllClose(loss_info.extra.policy_gradient_loss,
+                        expected_policy_gradient_loss)
+    self.assertAllClose(loss_info.extra.policy_network_regularization_loss,
+                        expected_policy_network_regularization_loss)
+    self.assertAllClose(loss_info.extra.entropy_regularization_loss,
+                        expected_entropy_regularization_loss)
+    self.assertAllClose(loss_info.extra.value_estimation_loss,
+                        expected_value_estimation_loss)
+    self.assertAllClose(loss_info.extra.value_network_regularization_loss,
+                        expected_value_network_regularization_loss)
 
   def testTrainMaskingRewardSingleEpisodeRewardOnLast(self):
     # Test that train reacts correctly to experience when there are:
@@ -904,6 +922,45 @@ class ReinforceAgentTest(tf.test.TestCase, parameterized.TestCase):
     self.assertEqual(self.evaluate(counter), 0)
     self.evaluate(loss)
     self.assertEqual(self.evaluate(counter), 1)
+
+  def testTrainWithRnnTransitions(self):
+    actor_net = actor_distribution_rnn_network.ActorDistributionRnnNetwork(
+        self._obs_spec,
+        self._action_spec,
+        input_fc_layer_params=None,
+        output_fc_layer_params=None,
+        conv_layer_params=None,
+        lstm_size=(40,))
+
+    counter = common.create_variable('test_train_counter')
+    agent = reinforce_agent.ReinforceAgent(
+        self._time_step_spec,
+        self._action_spec,
+        actor_network=actor_net,
+        optimizer=tf.compat.v1.train.AdamOptimizer(0.001),
+        train_step_counter=counter
+    )
+
+    batch_size = 5
+    observations = tf.constant(
+        [[[1, 2], [3, 4], [5, 6]]] * batch_size, dtype=tf.float32)
+    time_steps = ts.TimeStep(
+        step_type=tf.constant([[1, 1, 1]] * batch_size, dtype=tf.int32),
+        reward=tf.constant([[1] * 3] * batch_size, dtype=tf.float32),
+        discount=tf.constant([[1] * 3] * batch_size, dtype=tf.float32),
+        observation=observations)
+    actions = policy_step.PolicyStep(
+        tf.constant([[[0], [1], [1]]] * batch_size, dtype=tf.float32))
+    next_time_steps = ts.TimeStep(
+        step_type=tf.constant([[1, 1, 2]] * batch_size, dtype=tf.int32),
+        reward=tf.constant([[1] * 3] * batch_size, dtype=tf.float32),
+        discount=tf.constant([[1] * 3] * batch_size, dtype=tf.float32),
+        observation=observations)
+
+    experience = trajectory.Transition(time_steps, actions, next_time_steps)
+
+    agent.initialize()
+    agent.train(experience)
 
   @parameterized.parameters(
       (False,), (True,)

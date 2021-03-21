@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -63,6 +63,16 @@ class DynamicEpisodeDriver(driver.Driver):
                transition_observers=None,
                num_episodes=1):
     """Creates a DynamicEpisodeDriver.
+
+    **Note** about bias when using batched environments with `num_episodes`:
+    When using `num_episodes != None`, a `run` step "finishes" when
+    `num_episodes` have been completely collected (hit a boundary).
+    When used in conjunction with environments that have variable-length
+    episodes, this skews the distribution of collected episodes' lengths:
+    short episodes are seen more frequently than long ones.
+    As a result, running an `env` of `N > 1` batched environments
+    with `num_episodes >= 1` is not the same as running an env with `1`
+    environment with `num_episodes >= 1`.
 
     Args:
       env: A tf_environment.Base environment.
@@ -171,6 +181,16 @@ class DynamicEpisodeDriver(driver.Driver):
 
     If `time_step` and `policy_state` are not provided, `run` will reset the
     environment and request an initial state from the policy.
+
+    **Note** about bias when using batched environments with `num_episodes`:
+    When using `num_episodes != None`, a `run` step "finishes" collecting
+    `num_episodes` have been completely collected (hit a boundary).
+    When used in conjunction with environments that have variable-length
+    episodes, this skews the distribution of collected episodes' lengths:
+    short episodes are seen more frequently than long ones.
+    As a result, running an `env` of `N > 1` batched environments
+    with `num_episodes >= 1` is not the same as running an env with `1`
+    environment with `num_episodes >= 1`.
 
     Args:
       time_step: optional initial time_step. If None, it will be obtained by

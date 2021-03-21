@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -341,3 +341,19 @@ def tf_wheel_bandit_compute_optimal_reward(observation, delta, mu_inside,
   """TF wrapper around `compute_optimal_reward` to be used in `tf_metrics`."""
   return tf.py_function(wheel_py_environment.compute_optimal_reward,
                         [observation, delta, mu_inside, mu_high], tf.float32)
+
+
+@gin.configurable
+def compute_optimal_reward_with_movielens_environment(observation, environment):
+  """Helper function for gin configurable Regret metric."""
+  del observation
+  return tf.py_function(environment.compute_optimal_reward, [], tf.float32)
+
+
+@gin.configurable
+def compute_optimal_action_with_movielens_environment(observation,
+                                                      environment,
+                                                      action_dtype=tf.int32):
+  """Helper function for gin configurable SuboptimalArms metric."""
+  del observation
+  return tf.py_function(environment.compute_optimal_action, [], action_dtype)

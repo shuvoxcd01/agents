@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,11 +28,10 @@ from typing import Optional, Text
 import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
-
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.policies import greedy_policy
 from tf_agents.policies import random_tf_policy
 from tf_agents.policies import tf_policy
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.trajectories import policy_step
 from tf_agents.typing import types
 from tf_agents.utils import nest_utils
@@ -40,7 +39,7 @@ from tf_agents.utils import nest_utils
 tfd = tfp.distributions
 
 
-@gin.configurable(module='tf_agents', blacklist=['policy'])
+@gin.configurable(module='tf_agents', denylist=['policy'])
 class EpsilonGreedyPolicy(tf_policy.TFPolicy):
   """Returns epsilon-greedy samples of a given policy."""
 
@@ -110,7 +109,7 @@ class EpsilonGreedyPolicy(tf_policy.TFPolicy):
     outer_shape = nest_utils.get_outer_shape(time_step, self._time_step_spec)
     rng = tf.random.uniform(
         outer_shape, maxval=1.0, seed=seed_stream(), name='epsilon_rng')
-    cond = tf.greater(rng, self._get_epsilon())
+    cond = tf.greater_equal(rng, self._get_epsilon())
 
     # Selects the action/info from the random policy with probability epsilon.
     # TODO(b/133175894): tf.compat.v1.where only supports a condition which is
@@ -154,9 +153,9 @@ class EpsilonGreedyPolicy(tf_policy.TFPolicy):
         # This is the opposite of `cond`, which is 1-D bool tensor (batch_size,)
         # that is true when greedy policy was used, otherwise `cond` is false.
         random_policy_mask = tf.reshape(tf.logical_not(cond),
-                                        tf.shape(info.bandit_policy_type))
+                                        tf.shape(info.bandit_policy_type))  # pytype: disable=attribute-error
         bandit_policy_type = policy_utilities.bandit_policy_uniform_mask(
-            info.bandit_policy_type, mask=random_policy_mask)
+            info.bandit_policy_type, mask=random_policy_mask)  # pytype: disable=attribute-error
         info = policy_utilities.set_bandit_policy_type(
             info, bandit_policy_type)
     else:

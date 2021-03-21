@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -77,7 +77,7 @@ class ValueNetwork(network.Network):
       dropout_layer_params: Optional list of dropout layer parameters, each item
         is the fraction of input units to drop or a dictionary of parameters
         according to the keras.Dropout documentation. The additional parameter
-        `permanent', if set to True, allows to apply dropout at inference for
+        `permanent`, if set to True, allows to apply dropout at inference for
         approximated Bayesian inference. The dropout layers are interleaved with
         the fully connected layers; there is a dropout layer after each fully
         connected layer, except if the entry in the list is None. This list must
@@ -117,7 +117,7 @@ class ValueNetwork(network.Network):
     self._postprocessing_layers = tf.keras.layers.Dense(
         1,
         activation=None,
-        kernel_initializer=tf.compat.v1.initializers.random_uniform(
+        kernel_initializer=tf.random_uniform_initializer(
             minval=-0.03, maxval=0.03))
 
   def call(self, observation, step_type=None, network_state=(), training=False):

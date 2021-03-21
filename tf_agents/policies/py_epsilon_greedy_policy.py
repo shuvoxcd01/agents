@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -114,7 +114,13 @@ class EpsilonGreedyPolicy(py_policy.PyPolicy):
   def _random_function(self):
     return self._rng.rand()
 
-  def _action(self, time_step, policy_state=()):
+  def _action(self,
+              time_step,
+              policy_state=(),
+              seed: Optional[types.Seed] = None):
+    if seed is not None:
+      raise NotImplementedError(
+          'seed is not supported; but saw seed: {}'.format(seed))
     self._count += 1
     # _random_function()'s range should be [0, 1), so if epsilon is 1,
     # we should always use random policy, and if epislon is 0, it

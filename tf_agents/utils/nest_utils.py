@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,10 +23,13 @@ from __future__ import print_function
 import collections
 import numbers
 
+from typing import Optional, Text
+
 from absl import logging
 import numpy as np
 from six.moves import zip
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
+from tf_agents.typing import types
 from tf_agents.utils import composite
 import wrapt
 
@@ -63,9 +66,10 @@ _DOT = _Dot()
 
 def assert_same_structure(nest1,
                           nest2,
-                          check_types=True,
-                          expand_composites=False,
-                          message=None):
+                          check_types: bool = True,
+                          expand_composites: bool = False,
+                          allow_shallow_nest1: bool = False,
+                          message: Optional[Text] = None) -> None:
   """Same as tf.nest.assert_same_structure but with cleaner error messages.
 
   Args:
@@ -80,6 +84,8 @@ def assert_same_structure(nest1,
       "_ListWrapper" from trackable dependency tracking to compare equal).
     expand_composites: If true, then composite tensors such as `tf.SparseTensor`
       and `tf.RaggedTensor` are expanded into their component tensors.
+    allow_shallow_nest1: If `True`, `nest1` is allowed to be more shallow
+      than `nest2`.
     message: Optional error message to provide in case of failure.
 
   Raises:
@@ -96,8 +102,14 @@ def assert_same_structure(nest1,
         expand_composites))
   message = message or 'The two structures do not match'
   exception = None
+
+  if allow_shallow_nest1:
+    check_fn = nest.assert_shallow_structure
+  else:
+    check_fn = tf.nest.assert_same_structure
+
   try:
-    tf.nest.assert_same_structure(
+    check_fn(
         nest1,
         nest2,
         check_types=check_types,
@@ -110,7 +122,8 @@ def assert_same_structure(nest1,
         lambda _: _DOT, nest1, expand_composites=expand_composites)
     str2 = tf.nest.map_structure(
         lambda _: _DOT, nest2, expand_composites=expand_composites)
-    raise exception('{}:\n  {}\nvs.\n  {}'.format(message, str1, str2))
+    raise exception('{}:\n  {}\nvs.\n  {}\nValues:\n  {}\nvs.\n  {}.'
+                    .format(message, str1, str2, nest1, nest2))
 
 
 def flatten_with_joined_paths(structure, expand_composites=False):
@@ -190,6 +203,8 @@ def prune_extra_keys(narrow, wide):
   assert (prune_extra_keys({"a": {"b": 1}, "d": None},
                            {"a": {"b": "b", "c": "c"}, "d": [1, 2]})
           == {"a": {"b": "b"}, "d": [1, 2]})
+  # assert prune_extra_keys((), wide) == ()
+  # assert prune_extra_keys({"a": ()}, wide) == {"a": ()}
   ```
 
   Args:
@@ -206,11 +221,20 @@ def prune_extra_keys(narrow, wide):
     will be returned as is.  Note that ObjectProxy-wrapped objects are
     considered equivalent to their non-ObjectProxy types.
   """
+  #  If `narrow` is `()`, then `()` is returned.  That is, we narrow any
+  #  object w.r.t. an empty tuple to to an empty tuple.  We use `id()`
+  #  here because the emtpy tuple is a singleton in cpython and
+  #  because using "x is ()" or "x == ()" gives syntax warnings for
+  #  numpy arrays.
+  narrow_raw = (narrow.__wrapped__ if isinstance(narrow, wrapt.ObjectProxy)
+                else narrow)
+
+  if id(narrow_raw) == id(()):
+    return narrow
+
   if isinstance(wide, wrapt.ObjectProxy):
     return type(wide)(prune_extra_keys(narrow, wide.__wrapped__))
 
-  narrow_raw = (narrow.__wrapped__ if isinstance(narrow, wrapt.ObjectProxy)
-                else narrow)
   wide_raw = (wide.__wrapped__ if isinstance(wide, wrapt.ObjectProxy) else wide)
 
   if ((type(narrow_raw) != type(wide_raw))  # pylint: disable=unidiomatic-typecheck
@@ -220,7 +244,7 @@ def prune_extra_keys(narrow, wide):
     # We return early if the types are different; but we make some exceptions:
     #  list subtypes are considered the same (e.g. ListWrapper and list())
     #  Mapping subtypes are considered the same (e.g. DictWrapper and dict())
-    #  (TupleWrapper subtypes are handled by unwrapping ObjectProxy above)
+    #  (TupleWrapper subtypes are handled by unwrapping ObjectProxy above).
     return wide
 
   if isinstance(narrow, collections_abc.Mapping):
@@ -262,6 +286,61 @@ def prune_extra_keys(narrow, wide):
 
   # narrow is a leaf, just return wide
   return wide
+
+
+def assert_tensors_matching_dtypes_and_shapes(tensors_1, tensors_2, caller,
+                                              tensors_1_name, tensors_2_name):
+  """Checks if tensors have matching dtypes and shapes.
+
+  Args:
+    tensors_1: A nest of tensor objects.
+    tensors_2: A nest of tensor objects.
+    caller: The object calling `assert...`.
+    tensors_1_name: (str) Name to use for tensors_1 in case of an error.
+    tensors_2_name: (str) Name to use for tensors_2 in case of an error.
+
+  Raises:
+    ValueError: If the tensors do not match dtypes or shapes.
+  """
+  assert_same_structure(
+      tensors_1,
+      tensors_2,
+      message=('{}: {} and {} do not have matching structures'.format(
+          caller, tensors_1_name, tensors_2_name)))
+
+  def convert_to_tensor(t):
+    return tf.convert_to_tensor(t) if not tf.is_tensor(t) else t
+
+  flat_t1 = tf.nest.map_structure(convert_to_tensor, tf.nest.flatten(tensors_1))
+  flat_t2 = tf.nest.map_structure(convert_to_tensor, tf.nest.flatten(tensors_2))
+
+  t1_shapes = [t.shape for t in flat_t1]
+  t1_dtypes = [t.dtype for t in flat_t1]
+  t2_shapes = [t.shape for t in flat_t2]
+  t2_dtypes = [t.dtype for t in flat_t2]
+
+  compatible = True
+
+  if any(
+      t1_dtype != t2_dtype for t1_dtype, t2_dtype in zip(t1_dtypes, t2_dtypes)):
+    compatible = False
+  else:
+    for t1_shape, t2_shape in zip(t1_shapes, t2_shapes):
+      if t1_shape.ndims != t2_shape.ndims:
+        compatible = False
+        break
+
+  if not compatible:
+    get_dtypes = lambda v: tf.nest.map_structure(lambda x: x.dtype, v)
+    get_shapes = lambda v: tf.nest.map_structure(lambda x: x.shape, v)
+    raise ValueError('{}: Inconsistent dtypes or shapes between {} and {}.\n'
+                     'dtypes:\n{}\nvs.\n{}.\n'
+                     'shapes:\n{}\nvs.\n{}.'.format(caller, tensors_1_name,
+                                                    tensors_2_name,
+                                                    get_dtypes(tensors_1),
+                                                    get_dtypes(tensors_2),
+                                                    get_shapes(tensors_1),
+                                                    get_shapes(tensors_2)))
 
 
 def assert_matching_dtypes_and_inner_shapes(tensors,
@@ -1024,3 +1103,35 @@ def tile_batch(tensors, multiplier):
     the rank is < 1.
   """
   return tf.nest.map_structure(lambda t_: _tile_batch(t_, multiplier), tensors)
+
+
+def assert_value_spec(
+    output_spec: types.NestedTensorSpec,
+    network_name: str):
+  """Checks that `output_spec` is a nest of "value" type values.
+
+  "value" type values correspond to floating point tensors with spec shape
+  `()` or `(1,)`.
+
+  Args:
+    output_spec: The output spec returned by `network.create_variables`.
+    network_name: The string name of the network for error messages.
+
+  Raises:
+    ValueError: If `output_spec` is not a nest of value-type tensors.
+  """
+  def check_value_spec(v):
+    if not isinstance(v, tf.TensorSpec):
+      raise ValueError(
+          '{} emits outputs that are not tensors; spec: {}'
+          .format(network_name, output_spec))
+    if v.shape not in ((), (1,)):
+      raise ValueError(
+          '{} emits multiple values; spec: {}'
+          .format(network_name, output_spec))
+    if not v.dtype.is_floating:
+      raise ValueError(
+          '{} emits outputs that are not real numbers; spec: {}'
+          .format(network_name, output_spec))
+
+  tf.nest.map_structure(check_value_spec, output_spec)

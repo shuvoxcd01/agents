@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -42,9 +42,10 @@ class NormalProjectionNetworkTest(tf.test.TestCase):
 
     distribution, _ = network(inputs, outer_rank=1)
     self.evaluate(tf.compat.v1.global_variables_initializer())
-    self.assertEqual(tfp.distributions.Normal, type(distribution))
+    self.assertIsInstance(
+        distribution, tfp.distributions.MultivariateNormalDiag)
 
-    means, stds = distribution.loc, distribution.scale
+    means, stds = distribution.mean(), distribution.stddev()
 
     self.assertAllEqual(means.shape.as_list(),
                         [3] + output_spec.shape.as_list())
@@ -59,9 +60,10 @@ class NormalProjectionNetworkTest(tf.test.TestCase):
 
     distribution, _ = network(inputs, outer_rank=1)
     self.evaluate(tf.compat.v1.global_variables_initializer())
-    self.assertEqual(tfp.distributions.Normal, type(distribution))
+    self.assertIsInstance(
+        distribution, tfp.distributions.MultivariateNormalDiag)
 
-    means, stds = distribution.loc, distribution.scale
+    means, stds = distribution.mean(), distribution.stddev()
 
     self.assertAllEqual(means.shape.as_list(),
                         [3] + output_spec.shape.as_list())

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,12 +25,16 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
+from typing import Optional, Sequence, Text
+
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 
 from tf_agents.bandits.agents import linear_bandit_agent as lin_agent
+from tf_agents.typing import types
 
 
 @gin.configurable
@@ -52,27 +56,33 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
   """
 
   def __init__(self,
-               time_step_spec,
-               action_spec,
-               alpha=1.0,
-               gamma=1.0,
-               use_eigendecomp=False,
-               tikhonov_weight=1.0,
-               add_bias=False,
-               emit_policy_info=(),
-               observation_and_action_constraint_splitter=None,
-               accepts_per_arm_features=False,
-               debug_summaries=False,
-               summarize_grads_and_vars=False,
-               enable_summaries=True,
-               dtype=tf.float32,
-               name=None):
+               time_step_spec: types.TimeStep,
+               action_spec: types.BoundedTensorSpec,
+               variable_collection: Optional[
+                   lin_agent.LinearBanditVariableCollection] = None,
+               alpha: float = 1.0,
+               gamma: float = 1.0,
+               use_eigendecomp: bool = False,
+               tikhonov_weight: float = 1.0,
+               add_bias: bool = False,
+               emit_policy_info: Sequence[Text] = (),
+               observation_and_action_constraint_splitter: Optional[
+                   types.Splitter] = None,
+               accepts_per_arm_features: bool = False,
+               debug_summaries: bool = False,
+               summarize_grads_and_vars: bool = False,
+               enable_summaries: bool = True,
+               dtype: tf.DType = tf.float32,
+               name: Optional[Text] = None):
     """Initialize an instance of `LinearThompsonSamplingAgent`.
 
     Args:
       time_step_spec: A `TimeStep` spec describing the expected `TimeStep`s.
       action_spec: A scalar `BoundedTensorSpec` with `int32` or `int64` dtype
         describing the number of actions for this agent.
+      variable_collection: Instance of `LinearBanditVariableCollection`.
+        Collection of variables to be updated by the agent. If `None`, a new
+        instance of `LinearBanditVariableCollection` will be created.
       alpha: (float) positive scalar. This is the exploration parameter that
         multiplies the confidence intervals.
       gamma: a float forgetting factor in [0.0, 1.0]. When set to
@@ -112,6 +122,7 @@ class LinearThompsonSamplingAgent(lin_agent.LinearBanditAgent):
             lin_agent.ExplorationPolicy.linear_thompson_sampling_policy),
         time_step_spec=time_step_spec,
         action_spec=action_spec,
+        variable_collection=variable_collection,
         alpha=alpha,
         gamma=gamma,
         use_eigendecomp=use_eigendecomp,

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,8 +28,6 @@ from tf_agents.networks import network
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
 
-from tensorflow.python.framework import test_util  # pylint:disable=g-direct-tensorflow-import  # TF internal
-
 
 class DummyNet(network.Network):
 
@@ -42,11 +40,9 @@ class DummyNet(network.Network):
     self._dummy_layers = [
         tf.keras.layers.Dense(
             num_actions,
-            kernel_initializer=tf.compat.v1.initializers.constant(
-                [[1, 1.5, 2],
-                 [1, 1.5, 4]]),
-            bias_initializer=tf.compat.v1.initializers.constant(
-                [[1], [1], [-10]]))
+            kernel_initializer=tf.constant_initializer([[1, 1.5, 2],
+                                                        [1, 1.5, 4]]),
+            bias_initializer=tf.constant_initializer([[1], [1], [-10]]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -57,7 +53,6 @@ class DummyNet(network.Network):
     return inputs, network_state
 
 
-@test_util.run_all_in_graph_and_eager_modes
 class AgentTest(tf.test.TestCase):
 
   def setUp(self):

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,9 +20,10 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
+from typing import Any, Callable, Optional, Sequence, Tuple
+
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
-
 from tf_agents.drivers import driver
 from tf_agents.environments import tf_environment
 from tf_agents.policies import tf_policy
@@ -30,8 +31,6 @@ from tf_agents.trajectories import time_step as ts
 from tf_agents.trajectories import trajectory
 from tf_agents.typing import types
 from tf_agents.utils import common
-
-from typing import Any, Callable, Optional, Sequence, Tuple
 
 
 class TFDriver(driver.Driver):
@@ -42,12 +41,22 @@ class TFDriver(driver.Driver):
       env: tf_environment.TFEnvironment,
       policy: tf_policy.TFPolicy,
       observers: Sequence[Callable[[trajectory.Trajectory], Any]],
-      transition_observers: Optional[Sequence[Callable[[types.Transition],
+      transition_observers: Optional[Sequence[Callable[[trajectory.Transition],
                                                        Any]]] = None,
       max_steps: Optional[types.Int] = None,
       max_episodes: Optional[types.Int] = None,
       disable_tf_function: bool = False):
     """A driver that runs a TF policy in a TF environment.
+
+    **Note** about bias when using batched environments with `max_episodes`:
+    When using `max_episodes != None`, a `run` step "finishes" when
+    `max_episodes` have been completely collected (hit a boundary).
+    When used in conjunction with environments that have variable-length
+    episodes, this skews the distribution of collected episodes' lengths:
+    short episodes are seen more frequently than long ones.
+    As a result, running an `env` of `N > 1` batched environments
+    with `max_episodes >= 1` is not the same as running an env with `1`
+    environment with `max_episodes >= 1`.
 
     Args:
       env: A tf_environment.Base environment.
@@ -114,7 +123,8 @@ class TFDriver(driver.Driver):
       for observer in self.observers:
         observer(traj)
 
-      num_episodes += tf.math.reduce_sum(tf.cast(traj.is_last(), tf.float32))
+      num_episodes += tf.math.reduce_sum(
+          tf.cast(traj.is_boundary(), tf.float32))
       num_steps += tf.math.reduce_sum(tf.cast(~traj.is_boundary(), tf.float32))
 
       time_step = next_time_step

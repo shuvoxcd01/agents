@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,11 +20,11 @@ from __future__ import division
 # Using Type Annotations.
 from __future__ import print_function
 
-from typing import Optional
+from typing import Optional, cast
 
 import gin
 import numpy as np
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 import tensorflow_probability as tfp
 
 from tf_agents.networks import network
@@ -88,6 +88,7 @@ class CategoricalQPolicy(tf_policy.TFPolicy):
     network_action_spec = getattr(q_network, 'action_spec', None)
 
     if network_action_spec is not None:
+      action_spec = cast(tf.TypeSpec, action_spec)
       if not action_spec.is_compatible_with(network_action_spec):
         raise ValueError(
             'action_spec must be compatible with q_network.action_spec; '
@@ -98,6 +99,7 @@ class CategoricalQPolicy(tf_policy.TFPolicy):
       raise TypeError('action_spec must be a BoundedTensorSpec. Got: %s' % (
           action_spec,))
 
+    action_spec = cast(tensor_spec.BoundedTensorSpec, action_spec)
     if action_spec.minimum != 0:
       raise ValueError(
           'Action specs should have minimum of 0, but saw: {0}.  If collecting '
@@ -172,6 +174,8 @@ class CategoricalQPolicy(tf_policy.TFPolicy):
       neg_inf = tf.constant(-np.inf, dtype=logits.dtype)
       logits = tf.compat.v2.where(tf.cast(mask, tf.bool), logits, neg_inf)
 
+    action_spec = cast(tf.TensorSpec, self.action_spec)
     dist = tfp.distributions.Categorical(
-        logits=logits, dtype=self.action_spec.dtype)
+        logits=logits, dtype=action_spec.dtype)
+
     return policy_step.PolicyStep(dist, policy_state)

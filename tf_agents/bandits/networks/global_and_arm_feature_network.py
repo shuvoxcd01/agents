@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,9 +17,13 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
+from typing import Callable, Optional, Sequence, Text
+
 import gin
+import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 
 from tf_agents.bandits.specs import utils as bandit_spec_utils
@@ -27,9 +31,11 @@ from tf_agents.networks import encoding_network
 from tf_agents.networks import network
 from tf_agents.networks import q_network
 from tf_agents.specs import tensor_spec
+from tf_agents.typing import types
 
 
-def _remove_num_actions_dim_from_spec(observation_spec):
+def _remove_num_actions_dim_from_spec(
+    observation_spec: types.NestedTensorSpec) -> types.NestedTensorSpec:
   """Removes the extra `num_actions` dimension from the observation spec."""
   obs_spec_no_num_actions = {
       bandit_spec_utils.GLOBAL_FEATURE_KEY:
@@ -46,15 +52,18 @@ def _remove_num_actions_dim_from_spec(observation_spec):
   return obs_spec_no_num_actions
 
 
+@gin.configurable
 def create_feed_forward_common_tower_network(
-    observation_spec,
-    global_layers,
-    arm_layers,
-    common_layers,
-    output_dim=1,
-    global_preprocessing_combiner=None,
-    arm_preprocessing_combiner=None,
-    activation_fn=tf.keras.activations.relu):
+    observation_spec: types.NestedTensorSpec,
+    global_layers: Sequence[int],
+    arm_layers: Sequence[int],
+    common_layers: Sequence[int],
+    output_dim: int = 1,
+    global_preprocessing_combiner: Optional[Callable[..., types.Tensor]] = None,
+    arm_preprocessing_combiner: Optional[Callable[..., types.Tensor]] = None,
+    activation_fn: Callable[[types.Tensor],
+                            types.Tensor] = tf.keras.activations.relu
+) -> types.Network:
   """Creates a common tower network with feedforward towers.
 
   The network produced by this function can be used either in
@@ -97,9 +106,18 @@ def create_feed_forward_common_tower_network(
       fc_layer_params=arm_layers,
       activation_fn=activation_fn,
       preprocessing_combiner=arm_preprocessing_combiner)
-  common_input_dim = global_layers[-1] + arm_layers[-1]
+
+  # When `global_layers` or `arm_layers` are empty, the corresponding encoding
+  # networks simply pass the inputs forward, so in such cases we get the output
+  # dimensions from the respective observation specs.
+  global_network_out_dim = global_layers[
+      -1] if global_layers else obs_spec_no_num_actions[
+          bandit_spec_utils.GLOBAL_FEATURE_KEY].shape[-1]
+  arm_network_out_dim = arm_layers[
+      -1] if arm_layers else obs_spec_no_num_actions[
+          bandit_spec_utils.PER_ARM_FEATURE_KEY].shape[-1]
   common_input_spec = tensor_spec.TensorSpec(
-      shape=(common_input_dim,), dtype=tf.float32)
+      shape=(global_network_out_dim + arm_network_out_dim,), dtype=tf.float32)
   if output_dim == 1:
     common_network = q_network.QNetwork(
         input_tensor_spec=common_input_spec,
@@ -117,10 +135,12 @@ def create_feed_forward_common_tower_network(
 
 
 def create_feed_forward_dot_product_network(
-    observation_spec,
-    global_layers,
-    arm_layers,
-    activation_fn=tf.keras.activations.relu):
+    observation_spec: types.NestedTensorSpec,
+    global_layers: Sequence[int],
+    arm_layers: Sequence[int],
+    activation_fn: Callable[[types.Tensor],
+                            types.Tensor] = tf.keras.activations.relu
+) -> types.Network:
   """Creates a dot product network with feedforward towers.
 
   Args:
@@ -167,11 +187,11 @@ class GlobalAndArmCommonTowerNetwork(network.Network):
   """
 
   def __init__(self,
-               observation_spec,
-               global_network,
-               arm_network,
-               common_network,
-               name='GlobalAndArmCommonTowerNetwork'):
+               observation_spec: types.NestedTensorSpec,
+               global_network: types.Network,
+               arm_network: types.Network,
+               common_network: types.Network,
+               name='GlobalAndArmCommonTowerNetwork') -> types.Network:
     """Initializes an instance of `GlobalAndArmCommonTowerNetwork`.
 
     The network architecture contains networks for both the global and the arm
@@ -200,9 +220,21 @@ class GlobalAndArmCommonTowerNetwork(network.Network):
     arm_obs = observation[bandit_spec_utils.PER_ARM_FEATURE_KEY]
     arm_output, arm_state = self._arm_network(
         arm_obs, step_type=step_type, network_state=network_state)
+
+    # Reshape arm output to rank 3 tensor.
     arm_output_shape = tf.shape(arm_output)
+    batch_size = arm_output_shape[0]
+    inner_dim = 1
+    outer_dim = arm_output_shape[-1]
+    if arm_output.shape.rank > 2:
+      # Cannot have undefined inner dimension in arm output shape.
+      inner_dims = arm_output.shape[1: -1]
+      if any(d is None for d in inner_dims):
+        raise ValueError('inner dimensions of arm output cannot be unknown; '
+                         f'arm_output.shape: {arm_output.shape}')
+      inner_dim = np.prod(inner_dims)
     arm_output = tf.reshape(
-        arm_output, shape=[arm_output_shape[0], -1, arm_output_shape[-1]])
+        arm_output, shape=[batch_size, inner_dim, outer_dim])
 
     global_output, global_state = self._global_network(
         global_obs, step_type=step_type, network_state=network_state)
@@ -229,10 +261,10 @@ class GlobalAndArmDotProductNetwork(network.Network):
   """
 
   def __init__(self,
-               observation_spec,
-               global_network,
-               arm_network,
-               name='GlobalAndArmDotProductNetwork'):
+               observation_spec: types.NestedTensorSpec,
+               global_network: types.Network,
+               arm_network: types.Network,
+               name: Optional[Text] = 'GlobalAndArmDotProductNetwork'):
     """Initializes an instance of `GlobalAndArmDotProductNetwork`.
 
     The network architecture contains networks for both the global and the arm

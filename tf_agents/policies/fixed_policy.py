@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -70,7 +70,7 @@ class FixedPolicy(tf_policy.TFPolicy):
     log_probability = tf.nest.map_structure(
         lambda t: tf.constant(0.0, tf.float32), self._action_spec)
     self._policy_info = policy_step.set_log_probability(policy_info,
-                                                        log_probability)
+                                                        log_probability)  # pytype: disable=wrong-arg-types
 
   def _variables(self):
     return []

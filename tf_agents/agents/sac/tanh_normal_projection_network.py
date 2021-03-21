@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,21 +38,11 @@ from tf_agents.specs import tensor_spec
 from tf_agents.typing import types
 
 
-def tanh_squash_to_spec(inputs: types.Tensor,
-                        spec: types.TensorSpec) -> types.Tensor:
-  """Maps inputs with arbitrary range to range defined by spec using `tanh`."""
-  means = (spec.maximum + spec.minimum) / 2.0
-  magnitudes = (spec.maximum - spec.minimum) / 2.0
-
-  return means + magnitudes * tf.tanh(inputs)
-
-
 @gin.configurable
 class TanhNormalProjectionNetwork(network.DistributionNetwork):
   """Generates a tanh-squashed MultivariateNormalDiag distribution.
 
-  Note: This network uses `tanh_squash_to_spec` to normalize its
-  output. Due to the nature of the `tanh` function, values near the spec bounds
+  Note: Due to the nature of the `tanh` function, values near the spec bounds
   cannot be returned.
   """
 
@@ -96,8 +86,8 @@ class TanhNormalProjectionNetwork(network.DistributionNetwork):
         'loc': sample_spec.shape,
         'scale_diag': sample_spec.shape
     }
-    input_param_spec = {
-        name: tensor_spec.TensorSpec(  # pylint: disable=g-complex-comprehension
+    input_param_spec = {  # pylint: disable=g-complex-comprehension
+        name: tensor_spec.TensorSpec(
             shape=shape,
             dtype=sample_spec.dtype,
             name=network_name + '_' + name)
@@ -117,7 +107,7 @@ class TanhNormalProjectionNetwork(network.DistributionNetwork):
            outer_rank: int,
            training: bool = False,
            mask: Optional[types.NestedTensor] = None) -> types.NestedTensor:
-    if inputs.dtype != self._sample_spec.dtype:
+    if inputs.dtype != self._sample_spec.dtype:  # pytype: disable=attribute-error
       raise ValueError('Inputs to TanhNormalProjectionNetwork must match the '
                        'sample_spec.dtype.')
 
@@ -144,4 +134,4 @@ class TanhNormalProjectionNetwork(network.DistributionNetwork):
     means = batch_squash.unflatten(means)
     stds = batch_squash.unflatten(stds)
 
-    return self.output_spec.build_distribution(loc=means, scale_diag=stds), ()
+    return self.output_spec.build_distribution(loc=means, scale_diag=stds), ()  # pytype: disable=bad-return-type

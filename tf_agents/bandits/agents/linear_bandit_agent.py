@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -20,18 +20,23 @@ LinUCB and Linear Thompson Sampling agents are subclasses of this agent.
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 from enum import Enum
+from typing import Optional, Sequence, Text, Tuple
 
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.bandits.agents import utils as bandit_utils
 from tf_agents.bandits.policies import linalg
 from tf_agents.bandits.policies import linear_bandit_policy as lin_policy
 from tf_agents.bandits.specs import utils as bandit_spec_utils
+from tf_agents.policies import utils as policy_utilities
+from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import nest_utils
 
@@ -46,11 +51,11 @@ class LinearBanditVariableCollection(tf.Module):
   """A collection of variables used by `LinearBanditAgent`."""
 
   def __init__(self,
-               context_dim,
-               num_models,
-               use_eigendecomp=False,
-               dtype=tf.float32,
-               name=None):
+               context_dim: int,
+               num_models: int,
+               use_eigendecomp: bool = False,
+               dtype: tf.DType = tf.float32,
+               name: Optional[Text] = None):
     """Initializes an instance of `LinearBanditVariableCollection`.
 
     It creates all the variables needed for `LinearBanditAgent`.
@@ -103,7 +108,13 @@ class LinearBanditVariableCollection(tf.Module):
 
 
 def update_a_and_b_with_forgetting(
-    a_prev, b_prev, r, x, gamma, compute_eigendecomp=False):
+    a_prev: types.Tensor,
+    b_prev: types.Tensor,
+    r: types.Tensor,
+    x: types.Tensor,
+    gamma: float,
+    compute_eigendecomp: bool = False
+) -> Tuple[types.Tensor, types.Tensor, types.Tensor, types.Tensor]:
   r"""Update the covariance matrix `a` and the weighted sum of rewards `b`.
 
   This function updates the covariance matrix `a` and the sum of weighted
@@ -138,25 +149,27 @@ def update_a_and_b_with_forgetting(
 class LinearBanditAgent(tf_agent.TFAgent):
   """An agent that maintains linear reward estimates and their uncertainties."""
 
-  def __init__(self,
-               exploration_policy,
-               time_step_spec,
-               action_spec,
-               variable_collection=None,
-               alpha=1.0,
-               gamma=1.0,
-               use_eigendecomp=False,
-               tikhonov_weight=1.0,
-               add_bias=False,
-               emit_policy_info=(),
-               emit_log_probability=False,
-               observation_and_action_constraint_splitter=None,
-               accepts_per_arm_features=False,
-               debug_summaries=False,
-               summarize_grads_and_vars=False,
-               enable_summaries=True,
-               dtype=tf.float32,
-               name=None):
+  def __init__(
+      self,
+      exploration_policy,
+      time_step_spec: types.TimeStep,
+      action_spec: types.BoundedTensorSpec,
+      variable_collection: Optional[LinearBanditVariableCollection] = None,
+      alpha: float = 1.0,
+      gamma: float = 1.0,
+      use_eigendecomp: bool = False,
+      tikhonov_weight: float = 1.0,
+      add_bias: bool = False,
+      emit_policy_info: Sequence[Text] = (),
+      emit_log_probability: bool = False,
+      observation_and_action_constraint_splitter: Optional[
+          types.Splitter] = None,
+      accepts_per_arm_features: bool = False,
+      debug_summaries: bool = False,
+      summarize_grads_and_vars: bool = False,
+      enable_summaries: bool = True,
+      dtype: tf.DType = tf.float32,
+      name: Optional[Text] = None):
     """Initialize an instance of `LinearBanditAgent`.
 
     Args:
@@ -209,7 +222,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
     """
     tf.Module.__init__(self, name=name)
     common.tf_agents_gauge.get_cell('TFABandit').set(True)
-    self._num_actions = bandit_utils.get_num_actions_from_tensor_spec(
+    self._num_actions = policy_utilities.get_num_actions_from_tensor_spec(
         action_spec)
     self._num_models = 1 if accepts_per_arm_features else self._num_actions
     self._observation_and_action_constraint_splitter = (
@@ -283,10 +296,11 @@ class LinearBanditAgent(tf_agent.TFAgent):
         accepts_per_arm_features=accepts_per_arm_features,
         observation_and_action_constraint_splitter=(
             observation_and_action_constraint_splitter))
+
     training_data_spec = None
     if accepts_per_arm_features:
       training_data_spec = bandit_spec_utils.drop_arm_observation(
-          policy.trajectory_spec, observation_and_action_constraint_splitter)
+          policy.trajectory_spec)
     super(LinearBanditAgent, self).__init__(
         time_step_spec=time_step_spec,
         action_spec=action_spec,
@@ -297,6 +311,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
         summarize_grads_and_vars=summarize_grads_and_vars,
         enable_summaries=enable_summaries,
         train_sequence_length=None)
+    self._as_trajectory = data_converter.AsTrajectory(
+        self.data_context, sequence_length=None)
 
   @property
   def num_actions(self):
@@ -351,7 +367,7 @@ class LinearBanditAgent(tf_agent.TFAgent):
   def _initialize(self):
     tf.compat.v1.variables_initializer(self.variables)
 
-  def compute_summaries(self, loss):
+  def compute_summaries(self, loss: types.Tensor):
     if self.summaries_enabled:
       with tf.name_scope('Losses/'):
         tf.compat.v2.summary.scalar(
@@ -560,6 +576,8 @@ class LinearBanditAgent(tf_agent.TFAgent):
         have been calculated with the weights.  Note that each Agent chooses
         its own method of applying weights.
     """
+    experience = self._as_trajectory(experience)
+
     if tf.distribute.has_strategy():
       return self._distributed_train_step(experience)
 

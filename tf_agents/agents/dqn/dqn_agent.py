@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,10 +28,12 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-from typing import Optional, Text
+from typing import Optional, Text, cast
 
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
+
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.networks import network
 from tf_agents.networks import utils as network_utils
@@ -39,13 +41,12 @@ from tf_agents.policies import boltzmann_policy
 from tf_agents.policies import epsilon_greedy_policy
 from tf_agents.policies import greedy_policy
 from tf_agents.policies import q_policy
+from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
-from tf_agents.trajectories import trajectory
 from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import eager_utils
 from tf_agents.utils import nest_utils
-from tf_agents.utils import value_ops
 
 
 class DqnLossInfo(collections.namedtuple('DqnLossInfo',
@@ -100,9 +101,9 @@ class DqnAgent(tf_agent.TFAgent):
       optimizer: types.Optimizer,
       observation_and_action_constraint_splitter: Optional[
           types.Splitter] = None,
-      epsilon_greedy: types.Float = 0.1,
+      epsilon_greedy: Optional[types.FloatOrReturningFloat] = 0.1,
       n_step_update: int = 1,
-      boltzmann_temperature: Optional[types.Int] = None,
+      boltzmann_temperature: Optional[types.FloatOrReturningFloat] = None,
       emit_log_probability: bool = False,
       # Params for target network updates
       target_q_network: Optional[network.Network] = None,
@@ -148,7 +149,8 @@ class DqnAgent(tf_agent.TFAgent):
         constraints are not applied.
       epsilon_greedy: probability of choosing a random action in the default
         epsilon-greedy collect policy (used only if a wrapper is not provided to
-        the collect_policy method).
+        the collect_policy method). Only one of epsilon_greedy and
+        boltzmann_temperature should be provided.
       n_step_update: The number of steps to consider when computing TD error and
         TD loss. Defaults to single-step updates. Note that this requires the
         user to call train on Trajectory objects with a time dimension of
@@ -157,7 +159,8 @@ class DqnAgent(tf_agent.TFAgent):
         `q_network.state_spec`).
       boltzmann_temperature: Temperature value to use for Boltzmann sampling of
         the actions during data collection. The closer to 0.0, the higher the
-        probability of choosing the best action.
+        probability of choosing the best action. Only one of epsilon_greedy and
+        boltzmann_temperature should be provided.
       emit_log_probability: Whether policies emit log probabilities or not.
       target_q_network: (Optional.)  A `tf_agents.network.Network`
         to be used as the target network during Q learning.  Every
@@ -271,7 +274,20 @@ class DqnAgent(tf_agent.TFAgent):
         train_sequence_length=train_sequence_length,
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
-        train_step_counter=train_step_counter)
+        train_step_counter=train_step_counter,
+    )
+
+    if q_network.state_spec:
+      # AsNStepTransition does not support emitting [B, T, ...] tensors,
+      # which we need for DQN-RNN.
+      self._as_transition = data_converter.AsTransition(
+          self.data_context, squeeze_time_dim=False)
+    else:
+      # This reduces the n-step return and removes the extra time dimension,
+      # allowing the rest of the computations to be independent of the
+      # n-step parameter.
+      self._as_transition = data_converter.AsNStepTransition(
+          self.data_context, gamma=gamma, n=n_step_update)
 
   def _check_action_spec(self, action_spec):
     flat_action_spec = tf.nest.flatten(action_spec)
@@ -411,11 +427,13 @@ class DqnAgent(tf_agent.TFAgent):
     """Computes loss for DQN training.
 
     Args:
-      experience: A batch of experience data in the form of a `Trajectory`. The
-        structure of `experience` must match that of `self.policy.step_spec`.
-        All tensors in `experience` must be shaped `[batch, time, ...]` where
-        `time` must be equal to `self.train_sequence_length` if that
-        property is not `None`.
+      experience: A batch of experience data in the form of a `Trajectory` or
+        `Transition`. The structure of `experience` must match that of
+        `self.collect_policy.step_spec`.
+
+        If a `Trajectory`, all tensors in `experience` must be shaped
+        `[B, T, ...]` where `T` must be equal to `self.train_sequence_length`
+        if that property is not `None`.
       td_errors_loss_fn: A function(td_targets, predictions) to compute the
         element wise loss.
       gamma: Discount for future rewards.
@@ -431,28 +449,9 @@ class DqnAgent(tf_agent.TFAgent):
       ValueError:
         if the number of actions is greater than 1.
     """
-    # Check that `experience` includes two outer dimensions [B, T, ...]. This
-    # method requires a time dimension to compute the loss properly.
-    self._check_trajectory_dimensions(experience)
-
-    squeeze_time_dim = not self._q_network.state_spec
-    if self._n_step_update == 1:
-      time_steps, policy_steps, next_time_steps = (
-          trajectory.experience_to_transitions(experience, squeeze_time_dim))
-      actions = policy_steps.action
-    else:
-      # To compute n-step returns, we need the first time steps, the first
-      # actions, and the last time steps. Therefore we extract the first and
-      # last transitions from our Trajectory.
-      first_two_steps = tf.nest.map_structure(lambda x: x[:, :2], experience)
-      last_two_steps = tf.nest.map_structure(lambda x: x[:, -2:], experience)
-      time_steps, policy_steps, _ = (
-          trajectory.experience_to_transitions(
-              first_two_steps, squeeze_time_dim))
-      actions = policy_steps.action
-      _, _, next_time_steps = (
-          trajectory.experience_to_transitions(
-              last_two_steps, squeeze_time_dim))
+    transition = self._as_transition(experience)
+    time_steps, policy_steps, next_time_steps = transition
+    actions = policy_steps.action
 
     with tf.name_scope('loss'):
       q_values = self._compute_q_values(time_steps, actions, training=training)
@@ -460,28 +459,12 @@ class DqnAgent(tf_agent.TFAgent):
       next_q_values = self._compute_next_q_values(
           next_time_steps, policy_steps.info)
 
-      if self._n_step_update == 1:
-        # Special case for n = 1 to avoid a loss of performance.
-        td_targets = compute_td_targets(
-            next_q_values,
-            rewards=reward_scale_factor * next_time_steps.reward,
-            discounts=gamma * next_time_steps.discount)
-      else:
-        # When computing discounted return, we need to throw out the last time
-        # index of both reward and discount, which are filled with dummy values
-        # to match the dimensions of the observation.
-        rewards = reward_scale_factor * experience.reward[:, :-1]
-        discounts = gamma * experience.discount[:, :-1]
-
-        # TODO(b/134618876): Properly handle Trajectories that include episode
-        # boundaries with nonzero discount.
-
-        td_targets = value_ops.discounted_return(
-            rewards=rewards,
-            discounts=discounts,
-            final_value=next_q_values,
-            time_major=False,
-            provide_all_returns=False)
+      # This applies to any value of n_step_update and also in the RNN-DQN case.
+      # In the RNN-DQN case, inputs and outputs contain a time dimension.
+      td_targets = compute_td_targets(
+          next_q_values,
+          rewards=reward_scale_factor * next_time_steps.reward,
+          discounts=gamma * next_time_steps.discount)
 
       valid_mask = tf.cast(~time_steps.is_last(), tf.float32)
       td_error = valid_mask * (td_targets - q_values)
@@ -551,7 +534,8 @@ class DqnAgent(tf_agent.TFAgent):
                                   training=training)
     # Handle action_spec.shape=(), and shape=(1,) by using the multi_dim_actions
     # param. Note: assumes len(tf.nest.flatten(action_spec)) == 1.
-    multi_dim_actions = self._action_spec.shape.rank > 0
+    action_spec = cast(tensor_spec.BoundedTensorSpec, self._action_spec)
+    multi_dim_actions = action_spec.shape.rank > 0
     return common.index_with_actions(
         q_values,
         tf.cast(actions, dtype=tf.int32),

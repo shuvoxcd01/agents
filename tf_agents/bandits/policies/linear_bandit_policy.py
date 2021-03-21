@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,18 +37,22 @@ Shipra Agrawal, Navin Goyal, ICML 2013
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 from enum import Enum
+from typing import Optional, Sequence, Text
 
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
+from tf_agents.bandits.policies import constraints
 from tf_agents.bandits.policies import linalg
-from tf_agents.bandits.policies import policy_utilities
 from tf_agents.bandits.specs import utils as bandit_spec_utils
 from tf_agents.policies import tf_policy
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
+from tf_agents.typing import types
 
 tfd = tfp.distributions
 
@@ -63,22 +67,24 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
   """Linear Bandit Policy to be used by LinUCB, LinTS and possibly others."""
 
   def __init__(self,
-               action_spec,
-               cov_matrix,
-               data_vector,
-               num_samples,
-               time_step_spec=None,
-               exploration_strategy=ExplorationStrategy.optimistic,
-               alpha=1.0,
-               eig_vals=(),
-               eig_matrix=(),
-               tikhonov_weight=1.0,
-               add_bias=False,
-               emit_policy_info=(),
-               emit_log_probability=False,
-               accepts_per_arm_features=False,
-               observation_and_action_constraint_splitter=None,
-               name=None):
+               action_spec: types.BoundedTensorSpec,
+               cov_matrix: Sequence[types.Float],
+               data_vector: Sequence[types.Float],
+               num_samples: Sequence[types.Int],
+               time_step_spec: Optional[types.TimeStep] = None,
+               exploration_strategy: ExplorationStrategy = ExplorationStrategy
+               .optimistic,
+               alpha: float = 1.0,
+               eig_vals: Sequence[types.Float] = (),
+               eig_matrix: Sequence[types.Float] = (),
+               tikhonov_weight: float = 1.0,
+               add_bias: bool = False,
+               emit_policy_info: Sequence[Text] = (),
+               emit_log_probability: bool = False,
+               accepts_per_arm_features: bool = False,
+               observation_and_action_constraint_splitter: Optional[
+                   types.Splitter] = None,
+               name: Optional[Text] = None):
     """Initializes `LinearBanditPolicy`.
 
     The `a` and `b` arguments may be either `Tensor`s or `tf.Variable`s.
@@ -125,6 +131,8 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
         mask.
       name: The name of this policy.
     """
+    policy_utilities.check_no_mask_with_arm_features(
+        accepts_per_arm_features, observation_and_action_constraint_splitter)
     if not isinstance(cov_matrix, (list, tuple)):
       raise ValueError('cov_matrix must be a list of matrices (Tensors).')
     self._cov_matrix = cov_matrix
@@ -287,15 +295,19 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
       raise ValueError('Exploraton strategy %s not implemented.' %
                        self._exploration_strategy)
 
-    mask = policy_utilities.construct_mask_from_multiple_sources(
+    mask = constraints.construct_mask_from_multiple_sources(
         time_step.observation, self._observation_and_action_constraint_splitter,
         (), self._num_actions)
     if mask is not None:
       chosen_actions = policy_utilities.masked_argmax(
-          rewards_for_argmax, mask, output_type=self._action_spec.dtype)
+          rewards_for_argmax,
+          mask,
+          output_type=tf.nest.flatten(self._action_spec)[0].dtype)
     else:
       chosen_actions = tf.argmax(
-          rewards_for_argmax, axis=-1, output_type=self._action_spec.dtype)
+          rewards_for_argmax,
+          axis=-1,
+          output_type=tf.nest.flatten(self._action_spec)[0].dtype)
 
     action_distributions = tfp.distributions.Deterministic(loc=chosen_actions)
 
@@ -347,7 +359,7 @@ class LinearBanditPolicy(tf_policy.TFPolicy):
       # The features for the chosen arm is saved to policy_info.
       chosen_arm_features_info = (
           policy_utilities.create_chosen_arm_features_info_spec(
-              observation_spec, observation_and_action_constraint_splitter))
+              observation_spec))
       info_spec = policy_utilities.PerArmPolicyInfo(
           predicted_rewards_mean=predicted_rewards_mean,
           predicted_rewards_sampled=predicted_rewards_sampled,

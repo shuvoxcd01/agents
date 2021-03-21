@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -44,9 +44,11 @@ class Tanh(bijector.Bijector):
   """
 
   def __init__(self, validate_args=False, name="tanh"):
+    parameters = dict(locals())
     super(Tanh, self).__init__(
         forward_min_event_ndims=0,
         validate_args=validate_args,
+        parameters=parameters,
         name=name)
 
   def _forward(self, x):

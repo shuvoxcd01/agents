@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -38,15 +38,19 @@ Usage:
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
+
+from typing import Callable
 
 import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
 
-from tf_agents.bandits.agents import utils as agent_utils
 from tf_agents.bandits.environments import bandit_tf_environment
+from tf_agents.policies import utils as policy_utilities
 from tf_agents.trajectories import time_step as ts
+from tf_agents.typing import types
 from tf_agents.utils import common
 
 tfd = tfp.distributions
@@ -70,8 +74,11 @@ class BernoulliActionMaskTFEnvironment(bandit_tf_environment.BanditTFEnvironment
                                       ):
   """An environment wrapper that adds action masks to observations."""
 
-  def __init__(self, original_environment, action_constraint_join_fn,
-               action_probability):
+  def __init__(self,
+               original_environment: bandit_tf_environment.BanditTFEnvironment,
+               action_constraint_join_fn: Callable[
+                   [types.TensorSpec, types.TensorSpec], types.TensorSpec],
+               action_probability: float):
     """Initializes a `BernoulliActionMaskTFEnvironment`.
 
     Args:
@@ -92,7 +99,7 @@ class BernoulliActionMaskTFEnvironment(bandit_tf_environment.BanditTFEnvironment
     action_spec = self._original_environment.action_spec()
     observation_spec_without_mask = (
         self._original_environment.time_step_spec().observation)
-    self._num_actions = agent_utils.get_num_actions_from_tensor_spec(
+    self._num_actions = policy_utilities.get_num_actions_from_tensor_spec(
         action_spec)
 
     mask_spec = tf.TensorSpec([self._num_actions], dtype=tf.int32)

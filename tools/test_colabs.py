@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,7 +31,7 @@ flags.DEFINE_string('single_colab', None,
                     'Path to a single colab to run.')
 flags.DEFINE_string('output_dir', '/tmp/notebook_tests',
                     'Full path for executed notebooks and artifacts.')
-flags.DEFINE_boolean('debug', True,
+flags.DEFINE_boolean('debug', False,
                      'Debug logging if true. Otherwise info only.')
 flags.DEFINE_boolean('override_pip_install_agents', True,
                      'If true a replace is done to prevent notebooks from '
@@ -56,7 +56,19 @@ def execute_test(file_path, result_path):
     with open(file_path, 'r') as f:
       filedata = f.read()
       if FLAGS.override_pip_install_agents:
+        # Replaces pip install tf-agents with a noop. If this gets any bigger,
+        # refactor
+        filedata = filedata.replace('pip install tf-agents-nightly[reverb]',
+                                    'pip --version')
+        filedata = filedata.replace('pip install tf-agents-nightly',
+                                    'pip --version')
+        filedata = filedata.replace('pip install tf-agents[reverb]',
+                                    'pip --version')
+        filedata = filedata.replace('pip install --pre tf-agents[reverb]',
+                                    'pip --version')
         filedata = filedata.replace('pip install tf-agents', 'pip --version')
+        filedata = filedata.replace('pip install --pre tf-agents',
+                                    'pip --version')
       nb = nbformat.reads(filedata, as_version=4)
 
       ep = ExecutePreprocessor(timeout=3600, kernel_name='python3')

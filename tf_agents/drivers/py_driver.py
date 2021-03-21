@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -39,11 +39,21 @@ class PyDriver(driver.Driver):
       env: py_environment.PyEnvironment,
       policy: py_policy.PyPolicy,
       observers: Sequence[Callable[[trajectory.Trajectory], Any]],
-      transition_observers: Optional[Sequence[Callable[[types.Transition],
+      transition_observers: Optional[Sequence[Callable[[trajectory.Transition],
                                                        Any]]] = None,
       max_steps: Optional[types.Int] = None,
       max_episodes: Optional[types.Int] = None):
     """A driver that runs a python policy in a python environment.
+
+    **Note** about bias when using batched environments with `max_episodes`:
+    When using `max_episodes != None`, a `run` step "finishes" when
+    `max_episodes` have been completely collected (hit a boundary).
+    When used in conjunction with environments that have variable-length
+    episodes, this skews the distribution of collected episodes' lengths:
+    short episodes are seen more frequently than long ones.
+    As a result, running an `env` of `N > 1` batched environments
+    with `max_episodes >= 1` is not the same as running an env with `1`
+    environment with `max_episodes >= 1`.
 
     Args:
       env: A py_environment.Base environment.
@@ -103,7 +113,7 @@ class PyDriver(driver.Driver):
       for observer in self.observers:
         observer(traj)
 
-      num_episodes += np.sum(traj.is_last())
+      num_episodes += np.sum(traj.is_boundary())
       num_steps += np.sum(~traj.is_boundary())
 
       time_step = next_time_step

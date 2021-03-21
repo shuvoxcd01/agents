@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,7 +17,10 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
+
+from typing import Optional, Text
 
 import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
@@ -25,7 +28,9 @@ import tensorflow_probability as tfp
 from tf_agents.bandits.environments import bandit_tf_environment as bte
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step
+from tf_agents.typing import types
 from tf_agents.utils import eager_utils
+
 
 tfd = tfp.distributions
 
@@ -56,9 +61,16 @@ def _batched_table_lookup(tbl, row, col):
 class ClassificationBanditEnvironment(bte.BanditTFEnvironment):
   """An environment based on an arbitrary classification problem."""
 
-  def __init__(self, dataset, reward_distribution, batch_size,
-               label_dtype_cast=None, shuffle_buffer_size=None,
-               repeat_dataset=True, prefetch_size=None, seed=None):
+  def __init__(self,
+               dataset: tf.data.Dataset,
+               reward_distribution: types.Distribution,
+               batch_size: types.Int,
+               label_dtype_cast: Optional[tf.DType] = None,
+               shuffle_buffer_size: Optional[types.Int] = None,
+               repeat_dataset: Optional[bool] = True,
+               prefetch_size: Optional[types.Int] = None,
+               seed: Optional[types.Int] = None,
+               name: Optional[Text] = 'classification'):
     """Initialize `ClassificationBanditEnvironment`.
 
     Args:
@@ -78,6 +90,7 @@ class ClassificationBanditEnvironment(bte.BanditTFEnvironment):
       prefetch_size: If None, do not prefetch.  Otherwise, a prefetch buffer
         of the specified size is used in the environment's `dataset`.
       seed: Used to make results deterministic.
+      name: The name of this environment instance.
     Raises:
       ValueError: if `reward_distribution` does not have an event shape with
         rank 2.
@@ -112,7 +125,8 @@ class ClassificationBanditEnvironment(bte.BanditTFEnvironment):
     super(ClassificationBanditEnvironment, self).__init__(
         action_spec=action_spec,
         time_step_spec=time_step_spec,
-        batch_size=batch_size)
+        batch_size=batch_size,
+        name=name)
 
     if shuffle_buffer_size:
       dataset = dataset.shuffle(buffer_size=shuffle_buffer_size,
@@ -136,7 +150,7 @@ class ClassificationBanditEnvironment(bte.BanditTFEnvironment):
         reward_means, axis=1, output_type=self._action_spec.dtype)
     self._optimal_reward_table = tf.reduce_max(reward_means, axis=1)
 
-  def _observe(self):
+  def _observe(self) -> types.NestedTensor:
     context, lbl = eager_utils.get_next(self._data_iterator)
     self._previous_label.assign(self._current_label)
     self._current_label.assign(tf.reshape(
@@ -145,16 +159,16 @@ class ClassificationBanditEnvironment(bte.BanditTFEnvironment):
         context,
         shape=[self._batch_size] + self._time_step_spec.observation.shape)
 
-  def _apply_action(self, action):
+  def _apply_action(self, action: types.NestedTensor) -> types.NestedTensor:
     action = tf.reshape(
         action, shape=[self._batch_size] + self._action_spec.shape)
     reward_samples = self._reward_distribution.sample(tf.shape(action))
     return _batched_table_lookup(reward_samples, self._current_label, action)
 
-  def compute_optimal_action(self):
+  def compute_optimal_action(self) -> types.NestedTensor:
     return tf.gather(
         params=self._optimal_action_table, indices=self._previous_label)
 
-  def compute_optimal_reward(self):
+  def compute_optimal_reward(self) -> types.NestedTensor:
     return tf.gather(
         params=self._optimal_reward_table, indices=self._previous_label)

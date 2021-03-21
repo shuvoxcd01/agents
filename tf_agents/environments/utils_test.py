@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -57,9 +57,9 @@ class UtilsTest(test_utils.TestCase):
 
     def step(unused_time_step):
       if rng.rand() < 0.10:
-        return ts.termination(sample_fn(), 0.0)
+        return ts.termination(sample_fn(), 0.0)  # pytype: disable=wrong-arg-types
       else:
-        return ts.transition(sample_fn(), 1.0)
+        return ts.transition(sample_fn(), 1.0)  # pytype: disable=wrong-arg-types
 
     env.step = step
     env.reset = lambda: ts.restart(sample_fn())
@@ -109,9 +109,9 @@ class UtilsTest(test_utils.TestCase):
 
     def step(unused_time_step):
       if rng.rand() < 0.10:
-        return ts.termination(sample_fn(), 0.0)
+        return ts.termination(sample_fn(), 0.0)  # pytype: disable=wrong-arg-types
       else:
-        return ts.transition(sample_fn(), 1.0)
+        return ts.transition(sample_fn(), 1.0)  # pytype: disable=wrong-arg-types
 
     env.step = step
     env.reset = lambda: ts.restart(sample_fn())

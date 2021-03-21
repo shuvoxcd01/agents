@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -25,6 +25,7 @@ import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 from tf_agents.agents.dqn import dqn_agent
 from tf_agents.networks import network
 from tf_agents.networks import q_network
+from tf_agents.networks import sequential
 from tf_agents.networks import test_utils as networks_test_utils
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import policy_step
@@ -52,11 +53,9 @@ class DummyNet(network.Network):
             num_actions,
             kernel_regularizer=tf.keras.regularizers.l2(
                 l2_regularization_weight),
-            kernel_initializer=tf.compat.v1.initializers.constant(
-                [[num_actions, 1],
-                 [1, 1]]),
-            bias_initializer=tf.compat.v1.initializers.constant(
-                [[1], [1]]))
+            kernel_initializer=tf.constant_initializer([[num_actions, 1],
+                                                        [1, 1]]),
+            bias_initializer=tf.constant_initializer([[1], [1]]))
     ]
 
   def call(self, inputs, step_type=None, network_state=()):
@@ -325,6 +324,55 @@ class DqnAgentTest(test_utils.TestCase):
     loss, _ = agent._loss(experience)
 
     self.evaluate(tf.compat.v1.global_variables_initializer())
+    self.assertAllClose(self.evaluate(loss), expected_loss)
+
+  def testLossRNNSmokeTest(self, agent_class):
+    q_net = sequential.Sequential([
+        tf.keras.layers.LSTM(
+            2, return_state=True, return_sequences=True,
+            kernel_initializer=tf.constant_initializer(0.5),
+            recurrent_initializer=tf.constant_initializer(0.5)),
+    ])
+
+    agent = agent_class(
+        self._time_step_spec,
+        self._action_spec,
+        q_network=q_net,
+        gamma=0.95,
+        optimizer=None)
+
+    observations = tf.constant([[1, 2], [3, 4]], dtype=tf.float32)
+    time_steps = ts.restart(observations, batch_size=2)
+
+    rewards = tf.constant([10, 20], dtype=tf.float32)
+    discounts = tf.constant([0.7, 0.8], dtype=tf.float32)
+
+    next_observations = tf.constant([[5, 6], [7, 8]], dtype=tf.float32)
+    next_time_steps = ts.transition(next_observations, rewards, discounts)
+    third_observations = tf.constant([[9, 10], [11, 12]], dtype=tf.float32)
+    third_time_steps = ts.transition(third_observations, rewards, discounts)
+
+    actions = tf.constant([0, 1], dtype=tf.int32)
+    action_steps = policy_step.PolicyStep(actions)
+
+    experience1 = trajectory.from_transition(
+        time_steps, action_steps, next_time_steps)
+    experience2 = trajectory.from_transition(
+        next_time_steps, action_steps, third_time_steps)
+    experience3 = trajectory.from_transition(
+        third_time_steps, action_steps, third_time_steps)
+
+    experience = tf.nest.map_structure(
+        lambda x, y, z: tf.stack([x, y, z], axis=1),
+        experience1, experience2, experience3)
+
+    loss, _ = agent._loss(experience)
+
+    self.evaluate(tf.compat.v1.global_variables_initializer())
+
+    # Smoke test, here to make sure the calculation does not change as we
+    # modify preprocessing or other internals.
+    expected_loss = 28.722265
     self.assertAllClose(self.evaluate(loss), expected_loss)
 
   def testLossNStepMidMidLastFirst(self, agent_class):

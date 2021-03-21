@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,7 +28,8 @@ import os
 
 from absl import logging
 
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import numpy as np
+import tensorflow as tf
 
 from tf_agents.specs import tensor_spec
 from tf_agents.trajectories import time_step as ts
@@ -70,7 +71,7 @@ def check_tf1_allowed():
     raise RuntimeError(
         'You are using TF1 or running TF with eager mode disabled.  '
         'TF-Agents no longer supports TF1 mode (except for a shrinking list of '
-        'internal whitelisted users).  If this negatively affects you, please '
+        'internal allowed users).  If this negatively affects you, please '
         'reach out to the TF-Agents team.  Otherwise please use TF2.')
 
 
@@ -243,6 +244,11 @@ def soft_variables_update(source_variables,
                           sort_variables_by_name=False):
   """Performs a soft/hard update of variables from the source to the target.
 
+  Note: **when using this function with TF DistributionStrategy**, the
+  `strategy.extended.update` call (below) needs to be done in a cross-replica
+  context, i.e. inside a merge_call. Please use the Periodically class above
+  that provides this wrapper for you.
+
   For each variable v_t in target variables and its corresponding variable v_s
   in source variables, a soft update is:
   v_t = (1 - tau) * v_t + tau * v_s
@@ -262,9 +268,12 @@ def soft_variables_update(source_variables,
 
   Returns:
     An operation that updates target variables from source variables.
+
   Raises:
     ValueError: if `tau not in [0, 1]`.
     ValueError: if `len(source_variables) != len(target_variables)`.
+    ValueError: "Method requires being in cross-replica context,
+      use get_replica_context().merge_call()" if used inside replica context.
   """
   if tau < 0 or tau > 1:
     raise ValueError('Input `tau` should be in [0, 1].')
@@ -539,9 +548,9 @@ def spec_means_and_magnitudes(action_spec):
       lambda spec: (spec.maximum + spec.minimum) / 2.0, action_spec)
   action_magnitudes = tf.nest.map_structure(
       lambda spec: (spec.maximum - spec.minimum) / 2.0, action_spec)
-  return tf.cast(
-      action_means, dtype=tf.float32), tf.cast(
-          action_magnitudes, dtype=tf.float32)
+  return np.array(
+      action_means, dtype=np.float32), np.array(
+          action_magnitudes, dtype=np.float32)
 
 
 def scale_to_spec(tensor, spec):
@@ -945,9 +954,8 @@ def initialize_uninitialized_variables(session, var_list=None):
     if not flag:
       uninitialized_vars.append(v)
   if uninitialized_vars:
-    logging.info('uninitialized_vars:')
-    for v in uninitialized_vars:
-      logging.info(v)
+    logging.info('uninitialized_vars: %s',
+                 ', '.join([str(x) for x in uninitialized_vars]))
     session.run(tf.compat.v1.variables_initializer(uninitialized_vars))
 
 
@@ -996,9 +1004,11 @@ class Checkpointer(object):
     self._load_status.initialize_or_restore(session)
     return self._load_status
 
-  def save(self, global_step):
+  def save(self, global_step: tf.Tensor,
+           options: tf.train.CheckpointOptions = None):
     """Save state to checkpoint."""
-    saved_checkpoint = self._manager.save(checkpoint_number=global_step)
+    saved_checkpoint = self._manager.save(
+        checkpoint_number=global_step, options=options)
     self._checkpoint_exists = True
     logging.info('%s', 'Saved checkpoint: {}'.format(saved_checkpoint))
 
@@ -1050,29 +1060,29 @@ def replicate(tensor, outer_shape):
 
 def assert_members_are_not_overridden(base_cls,
                                       instance,
-                                      white_list=(),
-                                      black_list=()):
+                                      allowlist=(),
+                                      denylist=()):
   """Asserts public members of `base_cls` are not overridden in `instance`.
 
-  If both `white_list` and `black_list` are empty, no public member of
-  `base_cls` can be overridden. If a `white_list` is provided, only public
-  members in `white_list` can be overridden. If a `black_list` is provided,
-  all public members except those in `black_list` can be overridden. Both
-  `white_list` and `black_list` cannot be provided at the same, if so a
+  If both `allowlist` and `denylist` are empty, no public member of
+  `base_cls` can be overridden. If a `allowlist` is provided, only public
+  members in `allowlist` can be overridden. If a `denylist` is provided,
+  all public members except those in `denylist` can be overridden. Both
+  `allowlist` and `denylist` cannot be provided at the same, if so a
   ValueError will be raised.
 
   Args:
     base_cls: A Base class.
     instance: An instance of a subclass of `base_cls`.
-    white_list: Optional list of `base_cls` members that can be overridden.
-    black_list: Optional list of `base_cls` members that cannot be overridden.
+    allowlist: Optional list of `base_cls` members that can be overridden.
+    denylist: Optional list of `base_cls` members that cannot be overridden.
 
   Raises:
-    ValueError if both white_list and black_list are provided.
+    ValueError if both allowlist and denylist are provided.
   """
 
-  if black_list and white_list:
-    raise ValueError('Both `black_list` and `white_list` cannot be provided.')
+  if denylist and allowlist:
+    raise ValueError('Both `denylist` and `allowlist` cannot be provided.')
 
   instance_type = type(instance)
   subclass_members = set(instance_type.__dict__.keys())
@@ -1080,10 +1090,10 @@ def assert_members_are_not_overridden(base_cls,
       [m for m in base_cls.__dict__.keys() if not m.startswith('_')])
   common_members = public_members & subclass_members
 
-  if white_list:
-    common_members = common_members - set(white_list)
-  elif black_list:
-    common_members = common_members & set(black_list)
+  if allowlist:
+    common_members = common_members - set(allowlist)
+  elif denylist:
+    common_members = common_members & set(denylist)
 
   overridden_members = [
       m for m in common_members
@@ -1318,7 +1328,12 @@ def aggregate_losses(per_example_loss=None,
       if weight_rank > 0 and loss_rank > weight_rank:
         for dim in range(weight_rank, loss_rank):
           sample_weight = tf.expand_dims(sample_weight, dim)
-      per_example_loss = tf.math.multiply(per_example_loss, sample_weight)
+      # Sometimes we have an episode boundary or similar, and at this location
+      # the loss is nonsensical (i.e., inf or nan); and sample_weight is zero.
+      # In this case, we should respect the zero sample_weight and ignore the
+      # frame.
+      per_example_loss = tf.math.multiply_no_nan(
+          per_example_loss, sample_weight)
 
     if loss_rank is not None and loss_rank == 0:
       err_msg = (
@@ -1391,3 +1406,11 @@ def deduped_network_variables(network, *args):
   other_vars = object_identity.ObjectIdentitySet(
       [v for n in args for v in n.variables])  # pylint:disable=g-complex-comprehension
   return [v for v in network.variables if v not in other_vars]
+
+
+def safe_has_state(state):
+  """Safely checks `state not in (None, (), [])`."""
+  # TODO(b/158804957): tf.function changes "s in ((),)" to a tensor bool expr.
+  # pylint: disable=literal-comparison
+  return state is not None and state is not () and state is not []
+  # pylint: enable=literal-comparison

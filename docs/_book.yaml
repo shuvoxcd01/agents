@@ -17,6 +17,8 @@ upper_tabs:
         path: /agents/overview
       - title: Intro to RL
         path: /agents/tutorials/0_intro_rl
+      - title: Intro to Multi-Armed Bandits
+        path: /agents/tutorials/intro_bandit
       - title: Train a deep Q network
         path: /agents/tutorials/1_dqn_tutorial
       - heading: "Guide"
@@ -35,13 +37,15 @@ upper_tabs:
       - heading: "Tutorials"
       - title: REINFORCE agent
         path: /agents/tutorials/6_reinforce_tutorial
-      - title: Soft actor critic in Minitaur
+      - title: Soft Actor Critic (SAC) in Minitaur
         path: /agents/tutorials/7_SAC_minitaur_tutorial
       - title: Categorical DQN
         path: /agents/tutorials/9_c51_tutorial
+      - title: Multi-Armed Bandits Tutorial
+        path: /agents/tutorials/bandits_tutorial
     - name: API
       skip_translation: true
       contents:
-      - include: /agents/api_docs/python/_toc.yaml
+      - include: /agents/api_docs/python/tf_agents/_toc.yaml
 
 - include: /_upper_tabs_right.yaml

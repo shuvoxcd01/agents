@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,12 +17,15 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
+
+from typing import cast
 
 from absl.testing import parameterized
 
 import numpy as np
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 import tensorflow_probability as tfp
 from tf_agents.policies import tf_policy
 from tf_agents.specs import tensor_spec
@@ -132,8 +135,9 @@ class TfEmitLogProbsPolicy(tf_policy.TFPolicy):
         emit_log_probability=True)
 
   def _distribution(self, time_step, policy_state):
+    action_spec = cast(tensor_spec.BoundedTensorSpec, self.action_spec)
     probs = tf.constant(
-        0.2, shape=[self.action_spec.maximum - self.action_spec.minimum])
+        0.2, shape=[action_spec.maximum - action_spec.minimum])
     action_distribution = tf.nest.map_structure(
         lambda obs: tfp.distributions.Categorical(probs=probs),
         time_step.observation)

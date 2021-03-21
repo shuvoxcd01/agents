@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -145,7 +145,7 @@ class BatchedPyEnvironmentTest(tf.test.TestCase, parameterized.TestCase):
     # Test that actions are correctly unstacked when just batched in np.array.
     unstacked_actions = batched_py_environment.unstack_actions(batched_action)
     for action in unstacked_actions:
-      self.assertAllEqual(action_spec.shape, action.shape)
+      self.assertAllEqual(action_spec.shape, action.shape)  # pytype: disable=attribute-error
 
   def test_unstack_nested_actions(self):
     num_envs = 5
@@ -165,8 +165,8 @@ class BatchedPyEnvironmentTest(tf.test.TestCase, parameterized.TestCase):
         action=batched_action, other_var=np.array([13.0] * num_envs))
     unstacked_actions = batched_py_environment.unstack_actions(nested_action)
     for nested_action in unstacked_actions:
-      self.assertAllEqual(action_spec.shape, nested_action.action.shape)
-      self.assertEqual(13.0, nested_action.other_var)
+      self.assertAllEqual(action_spec.shape, nested_action.action.shape)  # pytype: disable=attribute-error
+      self.assertEqual(13.0, nested_action.other_var)  # pytype: disable=attribute-error
 
 
 if __name__ == '__main__':

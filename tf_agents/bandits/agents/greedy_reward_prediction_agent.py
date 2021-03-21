@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,18 +17,24 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
+from typing import Iterable, Optional, Text, Tuple
 from absl import logging
 
 import gin
-import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
+import tensorflow as tf
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.bandits.agents import utils as bandit_utils
 from tf_agents.bandits.networks import heteroscedastic_q_network
+from tf_agents.bandits.policies import constraints as constr
 from tf_agents.bandits.policies import greedy_reward_prediction_policy as greedy_reward_policy
 from tf_agents.bandits.specs import utils as bandit_spec_utils
+from tf_agents.policies import utils as policy_utilities
+from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import eager_utils
 
@@ -43,25 +49,26 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
 
   def __init__(
       self,
-      time_step_spec,
-      action_spec,
-      reward_network,
-      optimizer,
-      observation_and_action_constraint_splitter=None,
-      accepts_per_arm_features=False,
-      constraints=(),
+      time_step_spec: types.TimeStep,
+      action_spec: types.BoundedTensorSpec,
+      reward_network: types.Network,
+      optimizer: types.Optimizer,
+      observation_and_action_constraint_splitter: Optional[
+          types.Splitter] = None,
+      accepts_per_arm_features: bool = False,
+      constraints: Iterable[constr.BaseConstraint] = (),
       # Params for training.
-      error_loss_fn=tf.compat.v1.losses.mean_squared_error,
-      gradient_clipping=None,
+      error_loss_fn: types.LossFn = tf.compat.v1.losses.mean_squared_error,
+      gradient_clipping: Optional[float] = None,
       # Params for debugging.
-      debug_summaries=False,
-      summarize_grads_and_vars=False,
-      enable_summaries=True,
-      emit_policy_info=(),
-      train_step_counter=None,
-      laplacian_matrix=None,
-      laplacian_smoothing_weight=0.001,
-      name=None):
+      debug_summaries: bool = False,
+      summarize_grads_and_vars: bool = False,
+      enable_summaries: bool = True,
+      emit_policy_info: Tuple[Text, ...] = (),
+      train_step_counter: Optional[tf.Variable] = None,
+      laplacian_matrix: Optional[types.Float] = None,
+      laplacian_smoothing_weight: float = 0.001,
+      name: Optional[Text] = None):
     """Creates a Greedy Reward Network Prediction Agent.
 
      In some use cases, the actions are not independent and they are related to
@@ -136,7 +143,7 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
     common.tf_agents_gauge.get_cell('TFABandit').set(True)
     self._observation_and_action_constraint_splitter = (
         observation_and_action_constraint_splitter)
-    self._num_actions = bandit_utils.get_num_actions_from_tensor_spec(
+    self._num_actions = policy_utilities.get_num_actions_from_tensor_spec(
         action_spec)
     self._accepts_per_arm_features = accepts_per_arm_features
     self._constraints = constraints
@@ -170,7 +177,7 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
     training_data_spec = None
     if accepts_per_arm_features:
       training_data_spec = bandit_spec_utils.drop_arm_observation(
-          policy.trajectory_spec, observation_and_action_constraint_splitter)
+          policy.trajectory_spec)
 
     super(GreedyRewardPredictionAgent, self).__init__(
         time_step_spec,
@@ -183,28 +190,23 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
         summarize_grads_and_vars=summarize_grads_and_vars,
         enable_summaries=enable_summaries,
         train_step_counter=train_step_counter)
+    self._as_trajectory = data_converter.AsTrajectory(
+        self.data_context, sequence_length=None)
 
   def _initialize(self):
     tf.compat.v1.variables_initializer(self.variables)
 
   def _variables_to_train(self):
-    variables_to_train = self._reward_network.variables
+    variables_to_train = self._reward_network.trainable_variables
     for c in self._constraints:
       variables_to_train.extend(c.variables)
     return variables_to_train
 
   def _train(self, experience, weights):
-    (observations, actions,
-     rewards) = bandit_utils.process_experience_for_neural_agents(
-         experience, self._observation_and_action_constraint_splitter,
-         self._accepts_per_arm_features, self.training_data_spec)
+    experience = self._as_trajectory(experience)
 
     with tf.GradientTape() as tape:
-      loss_info = self.loss(observations,
-                            actions,
-                            rewards,
-                            weights=weights,
-                            training=True)
+      loss_info = self._loss(experience, weights=weights, training=True)
 
     variables_to_train = self._variables_to_train()
     if not variables_to_train:
@@ -230,11 +232,11 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
     return loss_info
 
   def reward_loss(self,
-                  observations,
-                  actions,
-                  rewards,
-                  weights=None,
-                  training=False):
+                  observations: types.NestedTensor,
+                  actions: types.Tensor,
+                  rewards: types.Tensor,
+                  weights: Optional[types.Float] = None,
+                  training: bool = False) -> types.Tensor:
     """Computes loss for reward prediction training.
 
     Args:
@@ -287,29 +289,28 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
         loss += (self._laplacian_smoothing_weight * tf.reduce_mean(
             tf.linalg.tensor_diag_part(smoothness_batched) * sample_weights))
 
-      loss += self._error_loss_fn(
-          rewards,
-          action_predicted_values,
-          sample_weights,
-          reduction=tf.compat.v1.losses.Reduction.MEAN)
+      # Reduction is done outside of the loss function because non-scalar
+      # weights with unknown shapes may trigger shape validation that fails
+      # XLA compilation.
+      loss += tf.reduce_mean(
+          tf.multiply(
+              self._error_loss_fn(
+                  rewards,
+                  action_predicted_values,
+                  reduction=tf.compat.v1.losses.Reduction.NONE),
+              sample_weights))
 
     return loss
 
-  def loss(self,
-           observations,
-           actions,
-           rewards,
-           weights=None,
-           training=False):
+  def _loss(self,
+            experience: types.NestedTensor,
+            weights: Optional[types.Float] = None,
+            training: bool = False) -> tf_agent.LossInfo:
     """Computes loss for training the reward and constraint networks.
 
     Args:
-      observations: A batch of observations.
-      actions: A batch of actions.
-      rewards: A batch of rewards. In the case we have constraints, we assume
-        that reward is a dict of tensors with 'reward' and 'constraint' keys
-        defined in 'bandit_spec_utils'. In case of many constraint signals, the
-        constraint tensor has many columns; one column per constraint signal.
+      experience: A batch of experience data in the form of a `Trajectory` or
+        `Transition`.
       weights: Optional scalar or elementwise (per-batch-entry) importance
         weights.  The output batch loss will be scaled by these weights, and
         the final scalar loss is the mean of these values.
@@ -321,6 +322,13 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
       ValueError:
         if the number of actions is greater than 1.
     """
+    (observations, actions,
+     rewards) = bandit_utils.process_experience_for_neural_agents(
+         experience, self._accepts_per_arm_features, self.training_data_spec)
+    if self._observation_and_action_constraint_splitter is not None:
+      observations, _ = self._observation_and_action_constraint_splitter(
+          observations)
+
     if self._constraints:
       rewards_tensor = rewards[bandit_spec_utils.REWARD_SPEC_KEY]
     else:
@@ -347,7 +355,9 @@ class GreedyRewardPredictionAgent(tf_agent.TFAgent):
       total_loss += constraint_loss
     return tf_agent.LossInfo(total_loss, extra=())
 
-  def compute_summaries(self, loss, constraint_loss=None):
+  def compute_summaries(self,
+                        loss: types.Tensor,
+                        constraint_loss: Optional[types.Tensor] = None):
     if self.summaries_enabled:
       with tf.name_scope('Losses/'):
         tf.compat.v2.summary.scalar(

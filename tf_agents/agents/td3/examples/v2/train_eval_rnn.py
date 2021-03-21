@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -71,7 +71,7 @@ def train_eval(
     root_dir,
     env_name='cartpole',
     task_name='balance',
-    observations_whitelist='position',
+    observations_allowlist='position',
     num_iterations=100000,
     actor_fc_layers=(400, 300),
     actor_output_fc_layers=(100,),
@@ -131,11 +131,11 @@ def train_eval(
   global_step = tf.compat.v1.train.get_or_create_global_step()
   with tf.compat.v2.summary.record_if(
       lambda: tf.math.equal(global_step % summary_interval, 0)):
-    if observations_whitelist is not None:
+    if observations_allowlist is not None:
       env_wrappers = [
           functools.partial(
               wrappers.FlattenObservationsWrapper,
-              observations_whitelist=[observations_whitelist])
+              observations_allowlist=[observations_allowlist])
       ]
     else:
       env_wrappers = []

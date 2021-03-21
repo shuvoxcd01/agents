@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -54,10 +54,8 @@ class DummyNet(network.Network):
     kernel_initializer = None
     bias_initializer = None
     if use_constant_initializer:
-      kernel_initializer = tf.compat.v1.initializers.constant(
-          [[1, 200], [3, 4]], verify_shape=True)
-      bias_initializer = tf.compat.v1.initializers.constant([1, 1],
-                                                            verify_shape=True)
+      kernel_initializer = tf.constant_initializer([[1, 200], [3, 4]])
+      bias_initializer = tf.constant_initializer([1, 1])
 
     # Store custom layers that can be serialized through the Checkpointable API.
     self._dummy_layers = [
@@ -109,7 +107,7 @@ class PyTFPolicyTest(test_utils.TestCase, parameterized.TestCase):
     self._time_step_spec = ts.time_step_spec(self._obs_spec)
     self._action_spec = tensor_spec.BoundedTensorSpec([], tf.int32, 0, 1,
                                                       'action')
-    self._float_action_spec = tensor_spec.BoundedTensorSpec([], tf.float32,
+    self._float_action_spec = tensor_spec.BoundedTensorSpec([1], tf.float32,
                                                             0, 1, 'action')
     self._tf_policy = q_policy.QPolicy(
         self._time_step_spec,

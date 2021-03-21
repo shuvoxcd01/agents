@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,9 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+
+from typing import Any
 
 import numpy as np
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
@@ -90,6 +93,9 @@ class PyEnvironmentMock(py_environment.PyEnvironment):
 
   def observation_spec(self):
     return self._observation_spec
+
+  def get_info(self) -> Any:
+    return {}
 
 
 class TFPolicyMock(tf_policy.TFPolicy):
@@ -259,7 +265,7 @@ class NumEpisodesObserver(object):
 
   def __call__(self, traj):
     num_episodes = tf.reduce_sum(
-        input_tensor=tf.cast(traj.is_last(), dtype=tf.int32))
+        input_tensor=tf.cast(traj.is_boundary(), dtype=tf.int32))
     with tf.control_dependencies([
         self._num_episodes.assign_add(num_episodes)
     ]):

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -170,14 +170,16 @@ class NestMap(network.Network):
 
   def call(self, inputs, network_state=(), **kwargs):
     nest_utils.assert_same_structure(
-        inputs, self._nested_layers,
+        self._nested_layers, inputs,
+        allow_shallow_nest1=True,
         message=(
-            '`inputs` and `self.nested_layers` do not have matching structures')
+            '`self.nested_layers` and `inputs` do not have matching structures')
     )
 
     if network_state:
       nest_utils.assert_same_structure(
-          network_state, self.state_spec,
+          self.state_spec, network_state,
+          allow_shallow_nest1=True,
           message=(
               'network_state and state_spec do not have matching structure'))
       nested_layers_state = network_state
@@ -190,9 +192,11 @@ class NestMap(network.Network):
     # layer's state is composed of a list with two tensors.  The
     # tf.nest.map_structure function would raise an error if two
     # "incompatible" structures are passed in this way.
+    def _mapper(inp, layer, state):  # pylint: disable=invalid-name
+      return layer(inp, network_state=state, **kwargs)
+
     outputs_and_next_state = nest_utils.map_structure_up_to(
-        self._nested_layers,
-        lambda inp, layer, state: layer(inp, network_state=state, **kwargs),
+        self._nested_layers, _mapper,
         inputs, self._nested_layers, nested_layers_state)
 
     flat_outputs_and_next_state = nest_utils.flatten_up_to(

@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,12 +33,12 @@ from six.moves import zip
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_probability as tfp
 
+from tf_agents.agents import data_converter
 from tf_agents.agents import tf_agent
 from tf_agents.networks import network
 from tf_agents.policies import actor_policy
 from tf_agents.policies import tf_policy
 from tf_agents.trajectories import time_step as ts
-from tf_agents.trajectories import trajectory
 from tf_agents.typing import types
 from tf_agents.utils import common
 from tf_agents.utils import eager_utils
@@ -153,14 +153,10 @@ class SacAgent(tf_agent.TFAgent):
 
     self._check_action_spec(action_spec)
 
+    net_observation_spec = time_step_spec.observation
+    critic_spec = (net_observation_spec, action_spec)
+
     self._critic_network_1 = critic_network
-    self._critic_network_1.create_variables()
-    if target_critic_network:
-      target_critic_network.create_variables()
-    self._target_critic_network_1 = (
-        common.maybe_copy_target_network_with_checks(self._critic_network_1,
-                                                     target_critic_network,
-                                                     'TargetCriticNetwork1'))
 
     if critic_network_2 is not None:
       self._critic_network_2 = critic_network_2
@@ -168,16 +164,33 @@ class SacAgent(tf_agent.TFAgent):
       self._critic_network_2 = critic_network.copy(name='CriticNetwork2')
       # Do not use target_critic_network_2 if critic_network_2 is None.
       target_critic_network_2 = None
-    self._critic_network_2.create_variables()
+
+    # Wait until critic_network_2 has been copied from critic_network_1 before
+    # creating variables on both.
+    self._critic_network_1.create_variables(critic_spec)
+    self._critic_network_2.create_variables(critic_spec)
+
+    if target_critic_network:
+      target_critic_network.create_variables(critic_spec)
+
+    self._target_critic_network_1 = (
+        common.maybe_copy_target_network_with_checks(
+            self._critic_network_1,
+            target_critic_network,
+            input_spec=critic_spec,
+            name='TargetCriticNetwork1'))
+
     if target_critic_network_2:
-      target_critic_network_2.create_variables()
+      target_critic_network_2.create_variables(critic_spec)
     self._target_critic_network_2 = (
-        common.maybe_copy_target_network_with_checks(self._critic_network_2,
-                                                     target_critic_network_2,
-                                                     'TargetCriticNetwork2'))
+        common.maybe_copy_target_network_with_checks(
+            self._critic_network_2,
+            target_critic_network_2,
+            input_spec=critic_spec,
+            name='TargetCriticNetwork2'))
 
     if actor_network:
-      actor_network.create_variables()
+      actor_network.create_variables(net_observation_spec)
     self._actor_network = actor_network
 
     policy = actor_policy_ctor(
@@ -230,7 +243,11 @@ class SacAgent(tf_agent.TFAgent):
         train_sequence_length=train_sequence_length,
         debug_summaries=debug_summaries,
         summarize_grads_and_vars=summarize_grads_and_vars,
-        train_step_counter=train_step_counter)
+        train_step_counter=train_step_counter,
+    )
+
+    self._as_transition = data_converter.AsTransition(
+        self.data_context, squeeze_time_dim=(train_sequence_length == 2))
 
   def _check_action_spec(self, action_spec):
     flat_action_spec = tf.nest.flatten(action_spec)
@@ -283,9 +300,8 @@ class SacAgent(tf_agent.TFAgent):
       ValueError: If optimizers are None and no default value was provided to
         the constructor.
     """
-    squeeze_time_dim = not self._critic_network_1.state_spec
-    time_steps, policy_steps, next_time_steps = (
-        trajectory.experience_to_transitions(experience, squeeze_time_dim))
+    transition = self._as_transition(experience)
+    time_steps, policy_steps, next_time_steps = transition
     actions = policy_steps.action
 
     trainable_critic_variables = list(object_identity.ObjectIdentitySet(
@@ -343,6 +359,56 @@ class SacAgent(tf_agent.TFAgent):
 
     self.train_step_counter.assign_add(1)
     self._update_target()
+
+    total_loss = critic_loss + actor_loss + alpha_loss
+
+    extra = SacLossInfo(
+        critic_loss=critic_loss, actor_loss=actor_loss, alpha_loss=alpha_loss)
+
+    return tf_agent.LossInfo(loss=total_loss, extra=extra)
+
+  def _loss(self,
+            experience: types.NestedTensor,
+            weights: Optional[types.Tensor] = None):
+    """Returns the loss of the provided experience.
+
+    Args:
+      experience: A time-stacked trajectory object.
+      weights: Optional scalar or elementwise (per-batch-entry) importance
+        weights.
+
+    Returns:
+      A `LossInfo` containing the loss for the experience.
+    """
+    transition = self._as_transition(experience)
+    time_steps, policy_steps, next_time_steps = transition
+    actions = policy_steps.action
+    critic_loss = self._critic_loss_weight * self.critic_loss(
+        time_steps,
+        actions,
+        next_time_steps,
+        td_errors_loss_fn=self._td_errors_loss_fn,
+        gamma=self._gamma,
+        reward_scale_factor=self._reward_scale_factor,
+        weights=weights,
+        training=False)
+    tf.debugging.check_numerics(critic_loss, 'Critic loss is inf or nan.')
+
+    actor_loss = self._actor_loss_weight * self.actor_loss(
+        time_steps, weights=weights)
+    tf.debugging.check_numerics(actor_loss, 'Actor loss is inf or nan.')
+
+    alpha_loss = self._alpha_loss_weight * self.alpha_loss(
+        time_steps, weights=weights)
+    tf.debugging.check_numerics(alpha_loss, 'Alpha loss is inf or nan.')
+
+    with tf.name_scope('Losses'):
+      tf.compat.v2.summary.scalar(
+          name='critic_loss', data=critic_loss, step=self.train_step_counter)
+      tf.compat.v2.summary.scalar(
+          name='actor_loss', data=actor_loss, step=self.train_step_counter)
+      tf.compat.v2.summary.scalar(
+          name='alpha_loss', data=alpha_loss, step=self.train_step_counter)
 
     total_loss = critic_loss + actor_loss + alpha_loss
 
@@ -455,9 +521,9 @@ class SacAgent(tf_agent.TFAgent):
       next_actions, next_log_pis = self._actions_and_log_probs(next_time_steps)
       target_input = (next_time_steps.observation, next_actions)
       target_q_values1, unused_network_state1 = self._target_critic_network_1(
-          target_input, next_time_steps.step_type, training=False)
+          target_input, step_type=next_time_steps.step_type, training=False)
       target_q_values2, unused_network_state2 = self._target_critic_network_2(
-          target_input, next_time_steps.step_type, training=False)
+          target_input, step_type=next_time_steps.step_type, training=False)
       target_q_values = (
           tf.minimum(target_q_values1, target_q_values2) -
           tf.exp(self._log_alpha) * next_log_pis)
@@ -468,9 +534,9 @@ class SacAgent(tf_agent.TFAgent):
 
       pred_input = (time_steps.observation, actions)
       pred_td_targets1, _ = self._critic_network_1(
-          pred_input, time_steps.step_type, training=training)
+          pred_input, step_type=time_steps.step_type, training=training)
       pred_td_targets2, _ = self._critic_network_2(
-          pred_input, time_steps.step_type, training=training)
+          pred_input, step_type=time_steps.step_type, training=training)
       critic_loss1 = td_errors_loss_fn(td_targets, pred_td_targets1)
       critic_loss2 = td_errors_loss_fn(td_targets, pred_td_targets2)
       critic_loss = critic_loss1 + critic_loss2
@@ -511,9 +577,9 @@ class SacAgent(tf_agent.TFAgent):
       actions, log_pi = self._actions_and_log_probs(time_steps)
       target_input = (time_steps.observation, actions)
       target_q_values1, _ = self._critic_network_1(
-          target_input, time_steps.step_type, training=False)
+          target_input, step_type=time_steps.step_type, training=False)
       target_q_values2, _ = self._critic_network_2(
-          target_input, time_steps.step_type, training=False)
+          target_input, step_type=time_steps.step_type, training=False)
       target_q_values = tf.minimum(target_q_values1, target_q_values2)
       actor_loss = tf.exp(self._log_alpha) * log_pi - target_q_values
       if actor_loss.shape.rank > 1:
@@ -588,8 +654,9 @@ class SacAgent(tf_agent.TFAgent):
       common.generate_tensor_summaries('actor_loss', actor_loss,
                                        self.train_step_counter)
       try:
-        common.generate_tensor_summaries('actions', actions,
-                                         self.train_step_counter)
+        for name, action in nest_utils.flatten_with_joined_paths(actions):
+          common.generate_tensor_summaries(name, action,
+                                           self.train_step_counter)
       except ValueError:
         pass  # Guard against internal SAC variants that do not directly
         # generate actions.
@@ -617,9 +684,11 @@ class SacAgent(tf_agent.TFAgent):
         common.generate_tensor_summaries('act_mode', action_distribution.mode(),
                                          self.train_step_counter)
       try:
-        common.generate_tensor_summaries('entropy_action',
-                                         action_distribution.entropy(),
-                                         self.train_step_counter)
+        for name, action_dist in nest_utils.flatten_with_joined_paths(
+            action_distribution):
+          common.generate_tensor_summaries('entropy_' + name,
+                                           action_dist.entropy(),
+                                           self.train_step_counter)
       except NotImplementedError:
         pass  # Some distributions do not have an analytic entropy.
 

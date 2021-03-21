@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -19,6 +19,7 @@
 import threading
 from typing import Text
 from absl import logging
+
 
 from tf_agents.policies import policy_saver as policy_saver_module
 
@@ -145,3 +146,8 @@ class AsyncPolicySaver(object):
       self._join_save_thread = True
       self._save_condition_variable.notify()
     self._save_thread.join()
+
+  def __getattr__(self, name: Text):
+    """Forward all other calls to the base saver."""
+    return getattr(self._policy_saver, name)
+

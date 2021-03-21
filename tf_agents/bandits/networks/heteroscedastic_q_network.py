@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,9 +17,11 @@
 
 from __future__ import absolute_import
 from __future__ import division
+# Using Type Annotations.
 from __future__ import print_function
 
 import collections
+from typing import Any, Callable, Optional, Sequence, Text
 
 import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
@@ -27,6 +29,7 @@ import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 from tf_agents.networks import encoding_network
 from tf_agents.networks import network
 from tf_agents.networks import q_network
+from tf_agents.typing import types
 
 
 class QBanditNetworkResult(collections.namedtuple(
@@ -38,21 +41,23 @@ class QBanditNetworkResult(collections.namedtuple(
 class HeteroscedasticQNetwork(network.Network):
   """Network Outputting Expected Value and Variance of Rewards."""
 
-  def __init__(self,
-               input_tensor_spec,
-               action_spec,
-               preprocessing_layers=None,
-               preprocessing_combiner=None,
-               conv_layer_params=None,
-               fc_layer_params=(75, 40),
-               dropout_layer_params=None,
-               activation_fn=tf.keras.activations.relu,
-               kernel_initializer=None,
-               batch_squash=True,
-               min_variance=0.1,
-               max_variance=10000.0,
-               dtype=tf.float32,
-               name='HeteroscedasticQNetwork'):
+  def __init__(
+      self,
+      input_tensor_spec: types.NestedTensorSpec,
+      action_spec: types.NestedTensorSpec,
+      preprocessing_layers: Optional[Callable[..., types.Tensor]] = None,
+      preprocessing_combiner: Optional[Callable[..., types.Tensor]] = None,
+      conv_layer_params: Optional[Sequence[Any]] = None,
+      fc_layer_params: Sequence[int] = (75, 40),
+      dropout_layer_params: Optional[Sequence[float]] = None,
+      activation_fn: Callable[[types.Tensor],
+                              types.Tensor] = tf.keras.activations.relu,
+      kernel_initializer: Optional[tf.keras.initializers.Initializer] = None,
+      batch_squash: bool = True,
+      min_variance: float = 0.1,
+      max_variance: float = 10000.0,
+      dtype: tf.DType = tf.float32,
+      name: Text = 'HeteroscedasticQNetwork'):
     """Creates an instance of `HeteroscedasticQNetwork`.
 
     Args:
@@ -117,10 +122,9 @@ class HeteroscedasticQNetwork(network.Network):
     q_value_layer = tf.keras.layers.Dense(
         num_actions,
         activation=None,
-        kernel_initializer=tf.compat.v1.initializers.random_uniform(
+        kernel_initializer=tf.random_uniform_initializer(
             minval=-0.03, maxval=0.03),
-        bias_initializer=tf.compat.v1.initializers.constant(-0.2),
-        dtype=dtype)
+        bias_initializer=tf.constant_initializer(-0.2))
 
     super(HeteroscedasticQNetwork, self).__init__(
         input_tensor_spec=input_tensor_spec,
@@ -133,7 +137,7 @@ class HeteroscedasticQNetwork(network.Network):
     self._log_variance_layer = tf.keras.layers.Dense(
         num_actions,
         activation=None,
-        kernel_initializer=tf.compat.v1.initializers.random_uniform(
+        kernel_initializer=tf.random_uniform_initializer(
             minval=-0.03, maxval=0.03),
         dtype=dtype)
 

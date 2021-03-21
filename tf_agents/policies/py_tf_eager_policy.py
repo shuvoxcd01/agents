@@ -1,11 +1,11 @@
 # coding=utf-8
-# Copyright 2018 The TF-Agents Authors.
+# Copyright 2020 The TF-Agents Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+#     https://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,6 +22,7 @@ from __future__ import print_function
 
 import os
 from typing import Optional, Text
+from absl import logging
 
 import gin
 import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
@@ -51,12 +52,34 @@ class PyTFEagerPolicyBase(py_policy.PyPolicy):
                action_spec: types.NestedArraySpec,
                policy_state_spec: types.NestedArraySpec,
                info_spec: types.NestedArraySpec,
-               use_tf_function: bool = False):
+               use_tf_function: bool = False,
+               batch_time_steps=True):
+    """Creates a new instance of the policy.
+
+    Args:
+      policy: `tf_policy.TFPolicy` instance to wrap and expose as a py_policy.
+      time_step_spec: A `TimeStep` ArraySpec of the expected time_steps. Usually
+        provided by the user to the subclass.
+      action_spec: A nest of BoundedArraySpec representing the actions. Usually
+        provided by the user to the subclass.
+      policy_state_spec: A nest of ArraySpec representing the policy state.
+        Provided by the subclass, not directly by the user.
+      info_spec: A nest of ArraySpec representing the policy info. Provided by
+        the subclass, not directly by the user.
+      use_tf_function: Wraps the use of `policy.action` in a tf.function call
+        which can help speed up execution.
+      batch_time_steps:  Wether time_steps should be batched before being passed
+        to the wrapped policy. Leave as True unless you are dealing with a
+        batched environment, in which case you want to skip the batching as
+        that dim will already be present.
+    """
     self._policy = policy
-    if use_tf_function:
+    self._use_tf_function = use_tf_function
+    if self._use_tf_function:
       self._policy_action_fn = common.function(policy.action)
     else:
       self._policy_action_fn = policy.action
+    self._batch_time_steps = batch_time_steps
     super(PyTFEagerPolicyBase, self).__init__(time_step_spec, action_spec,
                                               policy_state_spec, info_spec)
 
@@ -66,11 +89,20 @@ class PyTFEagerPolicyBase(py_policy.PyPolicy):
   def _get_initial_state(self, batch_size):
     return self._policy.get_initial_state(batch_size=batch_size)
 
-  def _action(self, time_step, policy_state):
-    time_step = nest_utils.batch_nested_array(time_step)
+  def _action(self, time_step, policy_state, seed: Optional[types.Seed] = None):
+    if seed is not None and self._use_tf_function:
+      logging.warning(
+          'Using `seed` may force a retrace for each call to `action`.')
+    if self._batch_time_steps:
+      time_step = nest_utils.batch_nested_array(time_step)
     # Avoid passing numpy arrays to avoid retracing of the tf.function.
     time_step = tf.nest.map_structure(tf.convert_to_tensor, time_step)
-    policy_step = self._policy_action_fn(time_step, policy_state)
+    if seed is not None:
+      policy_step = self._policy_action_fn(time_step, policy_state, seed=seed)
+    else:
+      policy_step = self._policy_action_fn(time_step, policy_state)
+    if not self._batch_time_steps:
+      return policy_step
     return policy_step._replace(
         action=nest_utils.unbatch_nested_tensors_to_arrays(policy_step.action),
         # We intentionally do not convert the `state` so it is outputted as the
@@ -88,14 +120,17 @@ class PyTFEagerPolicyBase(py_policy.PyPolicy):
 class PyTFEagerPolicy(PyTFEagerPolicyBase):
   """Exposes a numpy API for TF policies in Eager mode."""
 
-  def __init__(self, policy: tf_policy.TFPolicy, use_tf_function: bool = False):
+  def __init__(self,
+               policy: tf_policy.TFPolicy,
+               use_tf_function: bool = False,
+               batch_time_steps=True):
     time_step_spec = tensor_spec.to_nest_array_spec(policy.time_step_spec)
     action_spec = tensor_spec.to_nest_array_spec(policy.action_spec)
     policy_state_spec = tensor_spec.to_nest_array_spec(policy.policy_state_spec)
     info_spec = tensor_spec.to_nest_array_spec(policy.info_spec)
     super(PyTFEagerPolicy,
           self).__init__(policy, time_step_spec, action_spec, policy_state_spec,
-                         info_spec, use_tf_function)
+                         info_spec, use_tf_function, batch_time_steps)
 
 
 @gin.configurable
@@ -189,3 +224,7 @@ class SavedModelPyTFEagerPolicy(PyTFEagerPolicyBase):
     # checkpoint to have additional variables. This helps sharing checkpoints
     # across policies.
     status.assert_existing_objects_matched().expect_partial()
+
+  def __getattr__(self, name: Text):
+    """Forward all other calls to the loaded policy."""
+    return getattr(self._policy, name)
